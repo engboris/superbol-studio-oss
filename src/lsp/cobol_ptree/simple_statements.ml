@@ -781,36 +781,61 @@ let pp_sort_stmt ppf = function
 
 (* STOP *)
 type stop_stmt =
-  | StopRun of stop_run option
-  | StopLiteral of literal
+  | StopSimple
+  | StopRunReturning of stop_returning option
+  | StopRunWithStatus of stop_with_status
+  | StopError
+  | StopWithArg of name_or_literal
 [@@deriving ord]
 
-and stop_run =
+and stop_with_status =
   {
-    stop_kind: stop_kind;
-    stop_status: ident_or_literal;
+    status_kind: status_kind;
+    status_value: ident_or_literal;
   }
 [@@deriving ord]
 
-and stop_kind =
-  | StopRunError
-  | StopRunNormal
+and status_kind =
+  | StatusError
+  | StatusNormal
 [@@deriving ord]
 
-let pp_stop_kind ppf = function
-  | StopRunError -> Fmt.pf ppf "ERROR"
-  | StopRunNormal -> Fmt.pf ppf "NORMAL"
+and stop_returning =
+  | StopReturnAddress of name
+  | StopReturnInt of
+    {
+      value : literal;
+      size : literal option;
+    }
+[@@deriving ord]
 
-let pp_stop_run ppf { stop_kind; stop_status } =
+let pp_status_kind ppf = function
+  | StatusError -> Fmt.pf ppf "ERROR"
+  | StatusNormal -> Fmt.pf ppf "NORMAL"
+
+let pp_stop_with_status ppf { status_kind; status_value } =
   Fmt.pf ppf "WITH@ %a@ STATUS@ %a"
-    pp_stop_kind stop_kind
-    pp_ident_or_literal stop_status
+    pp_status_kind status_kind
+    pp_ident_or_literal status_value
 
 let pp_stop_stmt ppf = function
-  | StopRun sro ->
+  | StopSimple -> Fmt.pf ppf "STOP"
+  | StopRunReturning None -> Fmt.pf ppf "STOP RUN"
+  | StopRunReturning (Some r) -> begin match r with
+    | StopReturnAddress n ->
+      Fmt.pf ppf "STOP@ RUN@ RETURNING@ ADDRESS@ OF@ %a"
+      pp_name n
+    | StopReturnInt { value = v; size = None } ->
+      Fmt.pf ppf "STOP@ RUN@ RETURNING@ %a" pp_literal v
+    | StopReturnInt { value = v; size = Some v' } ->
+      Fmt.pf ppf "STOP@ RUN@ RETURNING@ %a WITH SIZE %a"
+      pp_literal v pp_literal v'
+    end 
+  | StopRunWithStatus s ->
     Fmt.pf ppf "STOP@ RUN%a"
-      Fmt.(option (sp ++ pp_stop_run)) sro
-  | StopLiteral lit -> Fmt.pf ppf "STOP@ %a" pp_literal lit
+      Fmt.(sp ++ pp_stop_with_status) s
+  | StopError -> Fmt.pf ppf "STOP ERROR"
+  | StopWithArg x -> Fmt.pf ppf "STOP@ %a" pp_name_or_literal x
 
 type terminate_stmt =
   name with_loc list

@@ -3285,8 +3285,13 @@ let go_to_statement :=
    DEPENDING; ON?; i = ident;
    { GoToDepending { goto_depending_targets = il;
                      goto_depending_on = i; } }
- | GO; TO?;         (* COB85; obsolete; should be sole statement of paragraph *)
-   { LoneGoTo }
+ | GO; TO?; %prec lowest
+   { LoneGoTo } (* COB85; obsolete; should be sole statement of paragraph *)
+ | GO; TO; ENTRY; ~ = alphanum; <GoToEntry>
+ | GO; TO; ENTRY; il = nel_(alphanum);
+   DEPENDING; ON?; i = ident;
+   { GoToEntryDepending { goto_entry_depending_targets = il;
+                          goto_entry_depending_on = i } }
 
 
 
@@ -3923,13 +3928,29 @@ let start_position ==
 (* STOP STATEMENT *)
 
 %public let unconditional_action := ~ = stop_statement; <Stop>
-let stop_statement [@context stop_stmt] :=
-  | STOP; RUN; so = ro(with_status); { StopRun so }       (* status: +COB2002 *)
-  | STOP; l = literal;               { StopLiteral l }    (* ~COB85, -COB2002 *)
+let stop_statement :=
+ | STOP; ~ = stop_body; < >
+let stop_body [@context stop_stmt] :=
+  | %prec lowest { StopSimple }
+  | RUN; ~ = ro(with_status); <StopRunWithStatus>
+  | RUN; or_(GIVING, RETURNING); ~ = o(stop_run_returning_args);
+    <StopRunReturning>                           (* status: +COB2002 *)
+  | ERROR; { StopError }                         (* GCOS *)
+  | ~ = stop_with_arg; < >                       (* RM/COBOL extension *)
+
+let stop_with_arg :=
+  | ~ = literal; <StopWithArg>                   (* ~COB85, -COB2002 *)
+  | ~ = name; <StopWithArg>
+  | ~ = or_(SPACE, or_(ZERO, QUOTE)); <StopWithArg>
 
 let with_status :=
   | WITH; stop_kind = stop_kind;
     STATUS?; stop_status = ident_or_literal; { { stop_kind; stop_status } }
+
+let stop_run_returning_args :=
+  | ADDRESS; OF; ~ = name; <StopReturnAddress>
+  | value = integer; size = o(pf(SIZE; IS, integer));
+    { StopReturnInt {value; size} }
 
 let stop_kind :=
   | ERROR; {StopRunError}
