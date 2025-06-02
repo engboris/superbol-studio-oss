@@ -583,7 +583,7 @@ let data_definition_on_hover
                   Cobol_data.Item.def_loc data_def)
           then Some (Pretty.to_string "%a%s%s"
                        Lsp_data_info_printer.pp_data_definition data_def doc_comments
-                       (Printf.sprintf "\nReferences: %d" ref_count),
+                       (Printf.sprintf "References: %d" ref_count),
                      hover_loc)
           else None
         end
