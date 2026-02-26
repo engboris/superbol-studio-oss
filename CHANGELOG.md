@@ -3,6 +3,9 @@
 ## [_] Next release
 
 ### Added
+- Support for multiple arguments in `SET` compiler directives [#536](https://github.com/OCamlPro/superbol-studio-oss/pull/536)
+- Handle OSVS parentheses in abbreviated combined relation conditions [#532](https://github.com/OCamlPro/superbol-studio-oss/pull/532)
+- Support STOP RUN RETURNING syntax with scalar argument [#529](https://github.com/OCamlPro/superbol-studio-oss/pull/529)
 - Support INDEXED BY and sort direction in any order in OCCURS clause [#526](https://github.com/OCamlPro/superbol-studio-oss/pull/526)
 - Support for debugging programs launched via custom COBOL runtimes [#522](https://github.com/OCamlPro/superbol-studio-oss/pull/522)
 - Parse `OR` in inspect regions [#519](https://github.com/OCamlPro/superbol-studio-oss/pull/519)
