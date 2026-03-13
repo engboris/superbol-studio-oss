@@ -22,6 +22,7 @@ and fixed_paging_params =
   {
     cut_at_col: int;
     alphanum_padding: char option;
+    enforceable_area_a: bool;
   }
 
 (* Actual format and indicator positioning *)
@@ -54,7 +55,8 @@ val from_config: Cobol_config.source_format -> any
 (** May raise {!INVALID_SOURCE_FORMAT}. *)
 val decypher: dialect: Cobol_config.dialect -> string -> any
 
-val guess_from: contents_prefix: string -> any
+val guess_from: contents_prefix: string -> Cobol_config.source_format
 
 val comment_entry_termination: _ source_format -> comment_entry_termination
 val first_area_b_column: _ source_format -> int option
+val enforceable_area_a: _ source_format -> bool

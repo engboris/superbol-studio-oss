@@ -11,21 +11,23 @@
 (*                                                                        *)
 (**************************************************************************)
 
+open Cobol_common.Platform.TYPES
+
 type t =
-  | String of { contents: string; filename: string }
-  | Channel of { ic: in_channel; filename: string }
+  { source: source; filename: string }
+and source =
+  | String of string
+  | Channel of in_channel
 
 let string ~filename contents =
-  String { contents; filename }
+  { source = String contents; filename }
 
 let channel ~filename ic =
-  Channel { ic; filename }
+  { source = Channel ic; filename }
 
-(** [from ~filename ~f] feeds [f] with the contents of a file named [filename];
-    uses [stdin] if [filename = ""]. *)
-let from ~filename ~f =
+(** [from ~filename ~f ~platform] feeds [f] with the contents of a file named
+    [filename]; uses [stdin] (as per [platform]) if [filename = ""]. *)
+let from ~filename ~f ~platform =
   if filename = ""
-  then f (Channel { ic = stdin; filename = "" })
-  else let ic = open_in_bin filename in
-    try let res = f (Channel { ic; filename }) in close_in ic; res
-    with e -> close_in_noerr ic; raise e
+  then platform.with_stdin ~f:(fun ic -> f @@ channel ~filename ic)
+  else f @@ string ~filename @@ platform.read_text_file filename

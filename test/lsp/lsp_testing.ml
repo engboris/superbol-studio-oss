@@ -31,10 +31,12 @@ let () =
 
 (** {1 Server initialization} *)
 
-let layout =
-  Superbol_free_lib.Project.layout;
+let platform =
+  Superbol_platform.record
+and layout =
+  Superbol_free_lib.Project.layout
 and cache_config =
-  LSP.INTERNAL.Project_cache.{
+  LSP.Types.{
     cache_storage = No_storage;
     cache_verbose = false;
   }
@@ -46,6 +48,7 @@ let init_temp_project ?(toml = "") () =
   projdir
 
 let make_server ?(with_semantic_tokens = false) () =
+  Cobol_common.Platform.copy ~dst:LSP.Platform.record ~src:platform;
   LSP.Server.init ~params:{ config = { project_layout = layout;
                                        cache_config;
                                        enable_client_configs = false;
@@ -54,7 +57,8 @@ let make_server ?(with_semantic_tokens = false) () =
                             workspace_folders = [];
                             with_semantic_tokens;
                             with_client_file_watcher = `no;
-                            with_client_config_watcher = false }
+                            with_client_config_watcher = false;
+                            position_encoding = `UTF16 }
 
 let add_cobol_doc server ~projdir filename text =
   let path = projdir // filename in
@@ -87,6 +91,7 @@ let add_cobol_doc server ~projdir filename text =
 (*   print_endline *)
 
 let projdir_marker = "__rootdir__"
+let projuri_marker = "file://"^projdir_marker 
 
 type test_project =
   {
@@ -94,14 +99,25 @@ type test_project =
     end_with_postproc: string -> unit;
   }
 
+let normalize_filename filename =
+  if Sys.win32
+  then Lsp.Uri.to_path @@ Lsp.Uri.of_path @@ Slashifier.slashify filename
+  else Slashifier.slashify filename
+
 let make_lsp_project ?toml () =
-  let projdir = init_temp_project ?toml () in
+  let projdir = normalize_filename @@ init_temp_project ?toml () in
+  let projuri = Lsp.Uri.of_path projdir in
   let projdir_regexp = Str.(regexp @@ quote projdir) in
-  let temp_dir_name = Filename.get_temp_dir_name () in
+  let projuri_regexp = Str.(regexp @@ quote @@ Lsp.Uri.to_string projuri) in
+  let temp_dir_name = normalize_filename @@ Filename.get_temp_dir_name () in
+  let rmdir projdir =
+    try EzFile.remove_dir ~all:true projdir
+    with Unix.Unix_error (EACCES, _, _) -> ()
+  in
   let end_with_postproc expected_output_string =
     (* Remove temporary project directory *)
     if EzString.starts_with ~prefix:temp_dir_name projdir
-    then EzFile.remove_dir ~all:true projdir
+    then rmdir projdir
     else Printf.eprintf "Leaving %s as is (does not look like a temporary \
                          directory)" projdir;
     (* Filter and print out results *)
@@ -109,7 +125,8 @@ let make_lsp_project ?toml () =
     List.filter_map begin function
       | s when String.trim s = "" -> None             (* ignore json RPC header: *)
       | s when EzString.starts_with ~prefix:"Content-Length: " s -> None
-      | s -> Some (Str.global_replace projdir_regexp projdir_marker s)
+      | s -> Some (Str.global_replace projdir_regexp projdir_marker @@
+                   Str.global_replace projuri_regexp projuri_marker @@ s)
     end |>
     String.concat "\n" |>
     print_endline
@@ -227,9 +244,11 @@ class srcloc_resuscitator_cache = object (self)
   method of_ ~location:Location.{ uri; range } : srcloc =
     (self#for_ ~uri) range
   method pp ppf location =
-    Pretty.print ppf "%a@." Cobol_common.Srcloc.pp_srcloc (self#of_ ~location)
+    Pretty.print ppf "%a@."
+      (Cobol_common.Srcloc.pp_srcloc ~platform) (self#of_ ~location)
   method print location =
-    Pretty.out "%a@." Cobol_common.Srcloc.pp_srcloc (self#of_ ~location)
+    Pretty.out "%a@."
+      (Cobol_common.Srcloc.pp_srcloc ~platform) (self#of_ ~location)
   method print_range_for ~uri range =
     self#print (Location.create ~uri ~range)
   method print_optional_range_for ~uri range =

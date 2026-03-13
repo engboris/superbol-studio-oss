@@ -2,6 +2,32 @@
 
 ## [_] Next release
 
+### Fixed
+- Grammar rules for `VALUE OF` clause [#629](https://github.com/OCamlPro/superbol-studio-oss/pull/629) (fix for [Issue #625](https://github.com/OCamlPro/superbol-studio-oss/issues/625))
+
+
+## [1.0.0] First stable release (2026-07-23)
+
+### Added
+- Improvements of the parsed AST for expressions and conditions [#615](https://github.com/OCamlPro/superbol-studio-oss/pull/615)
+- Enforcement of Area A checks only when the source format is `COBOL85` [#555](https://github.com/OCamlPro/superbol-studio-oss/pull/555) [#556](https://github.com/OCamlPro/superbol-studio-oss/pull/556)
+- Support for USAGE `COMP-5` and `COMP-6` [#548](https://github.com/OCamlPro/superbol-studio-oss/pull/548) [#606](https://github.com/OCamlPro/superbol-studio-oss/pull/606)
+- Warnings on unsupported usage, where the reported data item size may be be wrong [#570](https://github.com/OCamlPro/superbol-studio-oss/pull/570)
+
+### Fixed
+- Handling of some operators in abbreviated combined relation conditions [#611](https://github.com/OCamlPro/superbol-studio-oss/issues/611)
+- Misbehaviors of CFG visualization due to issues in underlying JS bindings [#596](https://github.com/OCamlPro/superbol-studio-oss/issues/596)
+- Details shown on hover of data items with definition issues [#575](https://github.com/OCamlPro/superbol-studio-oss/pull/575)
+- Handling of alphanumeric literals with UTF-8 characters in fixed-format COBOL code [#564](https://github.com/OCamlPro/superbol-studio-oss/pull/564)
+- Handling of queries about `LINKAGE` items given in `USING` phrases [#561](https://github.com/OCamlPro/superbol-studio-oss/pull/561)
+- Parsing of LSP CLI arguments, that notably prevented caching in global storage [#549](https://github.com/OCamlPro/superbol-studio-oss/pull/549) (fix for [Issue #547](https://github.com/OCamlPro/superbol-studio-oss/issues/547))
+- Size reported for numeric items with `SIGN SEPARATE` clause [#545](https://github.com/OCamlPro/superbol-studio-oss/pull/545) [#552](https://github.com/OCamlPro/superbol-studio-oss/pull/552) [#553](https://github.com/OCamlPro/superbol-studio-oss/pull/553)
+- Internal logic of the parser to limit the amount of text rescans [#544](https://github.com/OCamlPro/superbol-studio-oss/pull/544)
+- Documentation and renaming to reduce confusion in the typed COBOL AST API [#576](https://github.com/OCamlPro/superbol-studio-oss/pull/576)
+
+### Removed
+- Remove deprecated `Cobol_data.OLD` and `Cobol_typeck.OLD` [#592](https://github.com/OCamlPro/superbol-studio-oss/pull/592)
+
 
 ## [0.3.0] Third release (2026-02-27)
 

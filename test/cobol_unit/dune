@@ -1,6 +1,6 @@
 (library
  (name test_cobol_unit)
- (modules test_qualmap)
+ (modules test_resolver_map)
  (preprocess
   (pps ppx_expect))
  (inline_tests

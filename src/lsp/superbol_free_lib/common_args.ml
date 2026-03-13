@@ -21,6 +21,7 @@ open Cobol_preproc.Options
 open Cobol_parser.Options
 
 type t = {
+  platform: Cobol_common.Platform.TYPES.platform;
   preproc_options: preproc_options;
   parser_options: parser_options;
   pretty_verbose: 'a. 'a Pretty.proc;
@@ -66,6 +67,7 @@ let get ?(verbose_on = `Stdout) () =
                  "cobolx"; "Cobolx"; "CobolX"; "COBOLX";
                  "auto"; "AUTO"] in
   let libpath = ref ["."] in
+  let search_path = ref [] in
   let libexts = ref Cobol_common.Copybook.copybook_extensions in
   let definitions = ref [] in
   let recovery = ref true in
@@ -113,6 +115,10 @@ let get ?(verbose_on = `Stdout) () =
     ["silence"], Arg.String silence,
     EZCMD.info "Silence specific messages";
 
+    ["config-dir"], Arg.String (fun s ->
+        search_path := !search_path @ [s]),
+    EZCMD.info ~docv:"DIR" "Add DIR to config search path";
+
     ["I"], Arg.String (fun s -> libpath := !libpath @ [s]),
     EZCMD.info ~docv:"DIR" "Add DIR to library search path";
 
@@ -126,15 +132,16 @@ let get ?(verbose_on = `Stdout) () =
 
   let get () =
     let verbose = !Globals.verbosity > 0 in
+    let search_path = !search_path in
     let config =
-      DIAGS.show_n_forget @@
+      DIAGS.show_n_forget ~platform:Superbol_platform.record @@
       match !conf, !dialect with
       | "", None ->
           DIAGS.result Cobol_config.default
       | "", Some d ->
-          Cobol_config.from_dialect ~verbose d
+          Cobol_config.from_dialect ~verbose ~search_path d
       | s, None ->
-          Cobol_config.from_file ~verbose s
+          Cobol_config.from_file ~verbose ~search_path s
       | _ ->
           Pretty.failwith "Flags `--conf` and `--dialect` or `--std` cannot be \
                            used together"
@@ -167,9 +174,13 @@ let get ?(verbose_on = `Stdout) () =
           Pretty.failwith "Invalid argument `%s' given to flag `-D`" definition
       end !definitions Cobol_preproc.Env.empty
     in
+    let platform =
+      { Superbol_platform.record with verbosity = !Globals.verbosity }
+    in
     (* Pretty.error "@[Preprocessor environment:@;<1 2>@[%a@]@]@." *)
     (*   Cobol_preproc.Env.pp env; *)
-    { preproc_options = { config; verbose; source_format;
+    { platform ;
+      preproc_options = { platform; config; source_format;
                           exec_preprocs = EXEC_MAP.empty;
                           copybook_lookup_config =
                             Cobol_common.Copybook.lookup_config !libpath

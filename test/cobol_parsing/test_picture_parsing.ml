@@ -12,10 +12,8 @@
 (**************************************************************************)
 
 open Cobol_data
-open Cobol_common.Srcloc.INFIX
 
 module CHARS = Cobol_common.Basics.CharSet
-module DIAGS = Cobol_common.Diagnostics
 
 module Config = struct
   include Cobol_config.Default
@@ -29,7 +27,17 @@ module Env = struct
   let currency_signs = CHARS.singleton '$'
 end
 
-module PIC = Cobol_data.Picture.Make (Config) (Env)
+let config =
+  Cobol_data.Picture.TYPES.{
+    max_pic_length = 38;                      (* CHECKME: 63 in ISO/IEC 2014. *)
+    decimal_char = '.';
+    currency_signs = CHARS.singleton '$';
+    sign_config = Cobol_data.Picture.default_sign_config;
+  }
+
+let config' =
+  { config with
+    sign_config = { sign_position = Trailing; sign_separate = true } }
 
 (* --- *)
 
@@ -38,20 +46,24 @@ let dummy_loc = Cobol_common.Srcloc.raw Lexing.(dummy_pos, dummy_pos)
 let picture =
   Alcotest.testable Cobol_data.Picture.pp (fun p1 p2 -> Stdlib.compare p1 p2 = 0)
 
-let of_string s =
-  try ~&(PIC.of_string (s &@ dummy_loc))
-  with PIC.InvalidPicture (_, diags, pic) ->
-    Pretty.failwith "%a" DIAGS.Set.pp diags Picture.pp pic
+let of_string ?(config = config) s =
+  match Cobol_data.Picture.of_string config s with
+  | Ok pic ->
+      pic
+  | Error (errors, pic) ->
+      Pretty.failwith "%a@\n(got %a)"
+        Fmt.(list ~sep:(any "@;") (using fst Picture.pp_error)) errors
+        Picture.pp pic
 
-let check_ok s repr =
-  Alcotest.check picture "Picture parsed" repr (of_string s)
+let check_ok ?config s repr =
+  Alcotest.check picture "Picture parsed" repr (of_string ?config s)
 
 let check_eq s1 s2 =
   Alcotest.check picture "Equivalent pictures" (of_string s1) (of_string s2)
 
-let check_ko ?(show = false) s =
+let check_ko ?(show = false) ?config s =
   Alcotest.check_raises "Invalid picture" Exit
-    (fun () -> try ignore @@ of_string s with _ when not show -> raise Exit)
+    (fun () -> try ignore @@ of_string ?config s with _ when not show -> raise Exit)
 
 (* --- *)
 
@@ -86,9 +98,9 @@ module Pictures = struct
   let basic_national n =
     { category = National { length = n; insertions = [] };
       pic = [{symbol = N; symbol_occurences = n}] }
-  let fixednum ?(with_sign = false) ?(basics = []) ?floating ?zerorepl
+  let fixednum ?(sign = None) ?(basics = []) ?floating ?zerorepl
       digits scale =
-    FixedNum { digits; scale; with_sign;
+    FixedNum { digits; scale; sign;
                editions = { basics; floating; zerorepl } }
   let floatnum ?(with_sign = false) ?(basics = []) digits scale exp_digits =
     FloatNum { digits; scale; with_sign; exponent_digits = exp_digits;
@@ -130,7 +142,8 @@ module Pictures = struct
       pic = [nine 1; a 1] }
 
   let pic_S99 =
-    { category = fixednum ~with_sign:true 2 0;
+    { category = fixednum ~sign:(Some { sign_position = Trailing;
+                                        sign_separate = false }) 2 0;
       pic = [s 1; nine 2] }
 
   (* let pic_S99p = *)
@@ -138,7 +151,7 @@ module Pictures = struct
   (*     [ FixedInsertion { fixed_insertion_symbol = Plus; *)
   (*                        fixed_insertion_offset = 3 } ] *)
   (*   in *)
-  (*   { category = fixednum ~with_sign:true 2 0 ~basics; *)
+  (*   { category = fixednum ~sign:(Some { sign_position = Trailing; sign_separate = false }) 2 0 ~basics; *)
   (*     pic = [s 1; nine 2; plus 1] } *)
 
   let pic_V999 = fixed_numeric 0 3
@@ -341,6 +354,15 @@ module Pictures = struct
     { category = fixednum 6 (-3);
       pic = [nine 3; p 3] }
 
+  let pic_SPPP9 =
+    { category = fixednum 4 4 ~sign:(Some { sign_position = Trailing;
+                                            sign_separate = false });
+      pic = [s 1; p 3; nine 1] }
+  and pic_SPPP9' =
+    { category = fixednum 4 4 ~sign:(Some { sign_position = Trailing;
+                                            sign_separate = true });
+      pic = [s 1; p 3; nine 1] }
+
   let pic_ZZZ999V99 =
     let zerorepl = { zero_replacement_symbol = Z;
                      zero_replacement_ranges = [{ floating_range_offset = 0;
@@ -463,12 +485,12 @@ end
 (*TODO: Review the precedence rules, pp. 268-269 of ANSI Standard.*)
 
 let () =
-  let parse_ok pic_string pic_repr =
+  let parse_ok ?config pic_string pic_repr =
     Alcotest.test_case ("Valid: " ^ pic_string) `Quick @@
-    fun () -> check_ok pic_string pic_repr
-  and parse_ko ?show descr pic_string =
+    fun () -> check_ok ?config pic_string pic_repr
+  and parse_ko ?config ?show descr pic_string =
     Alcotest.test_case (descr ^ ": " ^ pic_string) `Quick @@
-    fun () -> check_ko ?show pic_string
+    fun () -> check_ko ?show ?config pic_string
   and same_repr pic_string_1 pic_string_2 =
     Alcotest.test_case ("Equiv: " ^ pic_string_1 ^ ", " ^ pic_string_2) `Quick @@
     fun () -> check_eq pic_string_1 pic_string_2
@@ -526,6 +548,8 @@ let () =
       parse_ok ",,999,999.999"           pic_cc999c999v999;
       parse_ok "PPP999"                  pic_PPP999;
       parse_ok "999PPP"                  pic_999PPP;
+      parse_ok "SPPP9"                   pic_SPPP9;
+      parse_ok "SPPP9"                   pic_SPPP9' ~config:config';
       parse_ok "VP9B"                    pic_VP9B;
       parse_ok "B9P(3)"                  pic_B9PPP;
       parse_ok "+(5)P(3)"                pic_pppppPPP;

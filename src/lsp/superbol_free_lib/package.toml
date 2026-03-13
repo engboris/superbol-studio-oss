@@ -59,7 +59,8 @@ cobol_lsp = "version"
 cobol_parser = "version"
 cobol_typeck = "version"
 superbol_preprocs = "version"
-ez_file = ">=0.3"
+superbol_platform = "version"
+ez_file = ">=0.4"
 ez_cmdliner = "0.3.0"
 vscode-json = "version"
 ez_api = { version = "2.0", libname = "ez_api.encoding" }
@@ -69,10 +70,14 @@ sql_preproc = "version"
 # We only depend on `lwt` via `ez_api` (and we don't even use any bit
 # of `lwt` at all).  But we still need to add the following constraint
 # on `lwt` so it installs properly on windows:
-lwt = ">=5"
+# Note: lwt-osx.5.9.0 currently fails to build; the upper-bound may be
+# lifted once it does.
+lwt = ">=5 <5.9"
 
 # package tools dependencies
 [tools]
+# Ensure `cmdliner` accepts abberviated subcommands
+cmdliner = "<2"
 # ...
 
 # package fields (depends on package skeleton)

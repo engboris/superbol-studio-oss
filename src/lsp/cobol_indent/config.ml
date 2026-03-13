@@ -13,6 +13,7 @@
 
 open Ez_file.V1
 open EzFile.OP
+open Cobol_common.Platform.TYPES
 
 open Types
 
@@ -80,12 +81,12 @@ let to_string config =
   Buffer.contents b
 
 
-let load ~source_format ~filename =
+let load ~platform ~source_format ~filename =
   if verbose then
     Printf.eprintf "Config.load for %S\n%!" filename;
   let filename =
     if Filename.is_relative filename then
-      ( Sys.getcwd ()) // filename
+      ( platform.getcwd ()) // filename
     else
       filename
   in
@@ -228,6 +229,7 @@ let source_format format =
   in
   match source_format with
   | SFFixed -> fixed_format
+  | SFCOBOL85 -> fixed_format
   | SFFree -> free_format
   | SFVariable -> variable_format
   | SFxCard -> xcard_format

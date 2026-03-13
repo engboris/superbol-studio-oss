@@ -17,12 +17,12 @@ include Lsp_server_loop
 
 module Types = struct
   include Lsp_imports
+  include Lsp_types
   include Lsp_server.TYPES
   include Lsp_diagnostics.TYPES
   include Lsp_lookup.TYPES
   include Lsp_document.TYPES
   include Lsp_project.TYPES
-  include Lsp_project_cache.TYPES
   include Lsp_request.TYPES
 end
 
@@ -34,6 +34,7 @@ module Request = Lsp_request
 module Lookup = Lsp_lookup
 module Utils = Lsp_utils
 module Error = Lsp_error
+module Platform = Lsp_platform
 module IO = Lsp_io
 
 (* --- *)

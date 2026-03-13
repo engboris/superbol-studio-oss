@@ -12,8 +12,8 @@ open Cobol_data.Types
 
 let get_x_info (cu : Cobol_unit.Types.cobol_unit) name_str =
   (* TODO: this needs to include refs from EXEC SQL INCLUDE stmt : TSQL042A *)
-  (* May raise Not_found | Cobol_unit.Qualmap.Ambiguous _ *)
-  Cobol_unit.Qualmap.find
+  (* May raise Not_found | Cobol_unit.Resolver_map.Ambiguous _ *)
+  Cobol_unit.Resolver_map.find
     (Cobol_unit.Qual.name
        (Cobol_common.Srcloc.flagit name_str Cobol_common.Srcloc.dummy) )
     cu.unit_data.data_items.named
@@ -28,13 +28,13 @@ let get_length cu name =
         with Cobol_data.Memory.NOT_SCALAR _ -> 0
       in
       begin match field_layout with
-        | Elementary_field { usage = Packed_decimal pic; _ } ->
+        | Elementary_field { usage = Packed_decimal { picture = pic; _ }; _ } ->
           begin match pic.category with
             | FixedNum { digits; _ } -> digits
             | _ -> size end
         | _ -> size end
     | _ -> 0
-  with Not_found | Cobol_unit.Qualmap.Ambiguous _ -> 0
+  with Not_found | Cobol_unit.Resolver_map.Ambiguous _ -> 0
 
 type cobol_types =
   | UNKNOWN
@@ -97,11 +97,11 @@ let get_type cu name =
       match x_info with
       | Data_field { def = { payload = { field_layout; _ }; _ }; _ } -> begin
         match field_layout with
-        | Elementary_field { usage = Packed_decimal picture; _ } ->
+        | Elementary_field { usage = Packed_decimal { picture; with_sign_nibble }; _ } ->
             (match picture.category with
-            | FixedNum { with_sign=true; _ } ->
+            | FixedNum { sign = Some _; _ } when with_sign_nibble ->
             COBOL_TYPE_SIGNED_NUMBER_PD
-            | FixedNum { with_sign=false; _ } ->
+            | FixedNum _ ->
             COBOL_TYPE_UNSIGNED_NUMBER_PD
             | _ -> UNKNOWN)
         | Elementary_field { usage = Display picture; _ } -> (
@@ -110,10 +110,9 @@ let get_type cu name =
           | Alphanumeric _ -> COBOL_TYPE_ALPHANUMERIC
           | Boolean _ -> COBOL_TYPE_UNSIGNED_BINARY (*?*)
           | National _ -> COBOL_TYPE_NATIONAL
-          | FixedNum { with_sign; _ } ->
-            if with_sign then
+          | FixedNum { sign = Some _; _ } ->
               COBOL_TYPE_SIGNED_NUMBER_TC
-            else
+          | FixedNum { sign = None; _ } ->
               COBOL_TYPE_UNSIGNED_NUMBER
           | FloatNum _ -> UNKNOWN )
         | Elementary_field _
@@ -125,7 +124,7 @@ let get_type cu name =
     | Not_found ->
       (*     Pretty.out " \"%s\" not found " name; *)
       UNKNOWN
-    | Cobol_unit.Qualmap.Ambiguous _ ->
+    | Cobol_unit.Resolver_map.Ambiguous _ ->
       (*     Pretty.out " \"%s\" not found. qualname nel lazy_t found" name; *)
       UNKNOWN
   in
@@ -137,7 +136,7 @@ let get_scale cu name =
     match x_info with
     | Data_field { def = { payload = { field_layout; _ }; _ }; _ } -> begin
       match field_layout with
-      | Elementary_field { usage = Packed_decimal picture; _ }
+      | Elementary_field { usage = Packed_decimal { picture; _ }; _ }
       | Elementary_field { usage = Display picture; _ } -> (
         match picture.category with
         | FixedNum { scale; _ }
@@ -153,7 +152,7 @@ let get_scale cu name =
   | Not_found ->
     (*     Pretty.out " \"%s\" not found " name; *)
     0
-  | Cobol_unit.Qualmap.Ambiguous _ ->
+  | Cobol_unit.Resolver_map.Ambiguous _ ->
     (*     Pretty.out " \"%s\" not found. qualname nel lazy_t found" name; *)
     0
 
@@ -185,7 +184,7 @@ let get_elementary_component cu name =
       aux payload
     | _ -> [name]
   with
-  | Not_found | Cobol_unit.Qualmap.Ambiguous _ -> [name]
+  | Not_found | Cobol_unit.Resolver_map.Ambiguous _ -> [name]
 
 let is_varying_len cu name =
   try
@@ -213,7 +212,7 @@ let is_varying_len cu name =
         | _ -> false)
     | _ -> false
   with
-  | Not_found | Cobol_unit.Qualmap.Ambiguous _ -> false
+  | Not_found | Cobol_unit.Resolver_map.Ambiguous _ -> false
 
 
 (*TODO*)
@@ -233,7 +232,7 @@ let print_name (cu : Cobol_unit.Types.cobol_unit) =
       | Elementary_field { usage = Display picture; _ } -> (
         Pretty.out "PIC is %a@." Cobol_data.Picture.pp picture;
         match picture.category with
-        | FixedNum { digits = _; scale = _; with_sign = _; _ } -> ()
+        | FixedNum { digits = _; scale = _; sign = _; _ } -> ()
         | _ -> () )
       | Elementary_field _
       | Struct_field _ ->

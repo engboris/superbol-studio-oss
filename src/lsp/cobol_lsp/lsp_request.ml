@@ -18,7 +18,6 @@ open Lsp_project.TYPES
 open Lsp_server.TYPES
 open Lsp_lookup.TYPES
 open Lsp.Types
-open Ez_file.V1
 
 module TYPES = struct
   type alternate_handler =
@@ -90,6 +89,10 @@ let initialize ~config (params: InitializeParams.t) =
   let capabilities = Lsp_capabilities.reply params.capabilities in
   let with_semantic_tokens =
     capabilities.semanticTokensProvider <> None
+  and position_encoding =
+    match capabilities.positionEncoding with
+    | Some UTF8 -> `UTF8
+    | _ -> `UTF16                                    (* use a sensible default *)
   in
   let with_client_config_watcher = match params.capabilities.workspace with
     | Some { didChangeConfiguration = Some { dynamicRegistration }; _ } ->
@@ -127,7 +130,8 @@ let initialize ~config (params: InitializeParams.t) =
   Ok (result, Initialized { root_uri; workspace_folders; config;
                             with_semantic_tokens;
                             with_client_config_watcher;
-                            with_client_file_watcher })
+                            with_client_file_watcher;
+                            position_encoding })
 
 
 (** {3 Shutdown} *)
@@ -224,7 +228,7 @@ let focus_on_name_in_defintions = true
 let find_data_definition Lsp_position.{ location_of; location_of_srcloc }
     ?(allow_notifications = true)
     (qn: Cobol_ptree.qualname) (cu: Cobol_unit.Types.cobol_unit) =
-  match Cobol_unit.Qualmap.find qn cu.unit_data.data_items.named with
+  match Cobol_unit.Resolver_map.find qn cu.unit_data.data_items.named with
   | Data_field { def = { loc; _ }; _ }
   | Data_renaming { def = { loc; _ }; _ }
   | Data_condition { def = { loc; _ }; _ }
@@ -240,7 +244,7 @@ let find_data_definition Lsp_position.{ location_of; location_of_srcloc }
   | Table_index { qualname; _ } ->
       [location_of qualname]
   | exception Not_found
-  | exception Cobol_unit.Qualmap.Ambiguous _
+  | exception Cobol_unit.Resolver_map.Ambiguous _
     when not allow_notifications ->
       []
   | exception Not_found ->
@@ -248,7 +252,7 @@ let find_data_definition Lsp_position.{ location_of; location_of_srcloc }
          analyzed. *)
       (* Lsp_notify.unknown "data-name" qn; *)
       []
-  | exception Cobol_unit.Qualmap.Ambiguous (lazy matching_qualnames) ->
+  | exception Cobol_unit.Resolver_map.Ambiguous (lazy matching_qualnames) ->
       Lsp_notify.ambiguous "data-name" qn ~matching_qualnames;
       []
 
@@ -269,13 +273,13 @@ let find_proc_definition
   | Section p ->
       [location_of p]
   | exception Not_found
-  | exception Cobol_unit.Qualmap.Ambiguous _
+  | exception Cobol_unit.Resolver_map.Ambiguous _
     when not allow_notifications ->
       []
   | exception Not_found ->
       Lsp_notify.unknown "procedure-name" qn;
       []
-  | exception Cobol_unit.Qualmap.Ambiguous (lazy matching_qualnames) ->
+  | exception Cobol_unit.Resolver_map.Ambiguous (lazy matching_qualnames) ->
       Lsp_notify.ambiguous "procedure-name" qn ~matching_qualnames;
       []
 
@@ -320,13 +324,13 @@ let lookup_qn ~kind ~lookup qn =
   | Not_found ->
       Lsp_notify.unknown kind qn;
       None
-  | Cobol_unit.Qualmap.Ambiguous (lazy matching_qualnames) ->
+  | Cobol_unit.Resolver_map.Ambiguous (lazy matching_qualnames) ->
       Lsp_notify.ambiguous kind qn ~matching_qualnames;
       None
 
 let find_full_qn ~kind qn qmap =
   lookup_qn ~kind qn
-    ~lookup:(fun qn -> (Cobol_unit.Qualmap.find_binding qn qmap).full_qn)
+    ~lookup:(fun qn -> (Cobol_unit.Resolver_map.find_binding qn qmap).full_qn)
 
 let find_proc_qn ~kind qn ?in_section cu =
   lookup_qn ~kind qn
@@ -488,6 +492,7 @@ let handle_range_formatting registry params =
   let _edit_list, edit_ops =
     let filename = Lsp.Uri.to_path doc.uri in
     Cobol_indent.Main.indent
+      ~platform:Lsp_platform.record
       ~dialect:(Cobol_config.dialect project.config.cobol_config)
       ~source_format:(Superbol_project.Config.source_format_for
                         ~filename project.config)
@@ -509,6 +514,7 @@ let handle_formatting registry params =
     let filename = Lsp.Uri.to_path doc.uri in
     let _editList, edit_ops =
       Cobol_indent.Main.indent
+        ~platform:Lsp_platform.record
         ~dialect:(Cobol_config.dialect project.config.cobol_config)
         ~source_format:(Superbol_project.Config.source_format_for
                           ~filename project.config)
@@ -546,44 +552,46 @@ let handle_semtoks_full,
 (** {3 Hover} *)
 
 let doc_of_datadef ~rev_comments ~filename data_def =
-  let open Cobol_preproc.Text in
-  let loc = Cobol_data.Item.def_loc data_def in
-  let def_filename = (fst @@ Cobol_common.Srcloc.as_lexloc loc).pos_fname in
-  if not (String.equal filename def_filename) (** def is in copybook *)
+  let definition_loc = Cobol_data.Item.def_loc data_def in
+  let definition_lexloc = Cobol_common.Srcloc.as_lexloc definition_loc in
+  let definition_filename = (fst definition_lexloc).pos_fname in
+  if not (String.equal filename definition_filename)      (* def is in copybook *)
   then ""
   else
-    let def_range = Lsp_position.range_of_srcloc_in ~filename loc in
-    let (inline, full_line) =
-      List.fold_left begin fun acc { comment_loc; comment_kind; comment_contents } ->
-        let com_range = Lsp_position.range_of_lexloc comment_loc in
-        if def_range.start.line = com_range.start.line
-        then (Some comment_contents, snd acc)
-        else if def_range.start.line = com_range.start.line + 1
-             && comment_kind == `Line
-        then (fst acc, Some comment_contents)
-        else acc
-      end (None, None) rev_comments
+    let definition_range =
+      Lsp_position.range_of_srcloc_in ~filename definition_loc
     in
-    match inline, full_line with
-    | Some comment, _ -> "\n---\n" ^ String.sub comment 2 (String.length comment - 2)
-    | None, Some comment -> "\n---\n" ^ String.sub comment 1 (String.length comment - 1)
-    | _ -> ""
+    let definition_line = definition_range.start.line in
+    List.find_map begin fun Cobol_preproc.Text.{ comment_loc; comment_kind;
+                                                 comment_contents = c } ->
+      let comment_range = Lsp_position.range_of_lexloc comment_loc in
+      let comment_line = comment_range.start.line in
+      if definition_line = comment_line
+      then Some (String.sub c 2 (String.length c - 2))
+      else if definition_line = comment_line + 1 && comment_kind == `Line
+      then Some (String.sub c 1 (String.length c - 1))
+      else None
+    end rev_comments |> function
+    | Some c -> c
+    | None -> ""
 
-let lookup_data_definition_for_hover cu_name element_at_pos group =
+let lookup_data_definition cu_name element_at_pos group =
   let { payload = cu; _ } = CUs.find_by_name cu_name group in
   let named_data_defs = cu.unit_data.data_items.named in
   try match element_at_pos with
     | Data_item { full_qn = Some qn; def_loc } ->
-        Cobol_unit.Qualmap.find qn named_data_defs, def_loc
+        Cobol_unit.Resolver_map.find qn named_data_defs,
+        def_loc
     | Data_full_name qn | Data_name qn ->
-        Cobol_unit.Qualmap.find qn named_data_defs, Lsp_lookup.baseloc_of_qualname qn
+        Cobol_unit.Resolver_map.find qn named_data_defs,
+        Lsp_lookup.baseloc_of_qualname qn
     | Data_item _ | Proc_name _ ->
         raise Not_found
-  with Cobol_unit.Qualmap.Ambiguous _ -> raise Not_found
+  with Cobol_unit.Resolver_map.Ambiguous _ -> raise Not_found
 
-let data_definition_on_hover
-    ?(always_show_hover_definition_text_in_data_div = false) ~rev_comments
-    ~uri position (checked_doc : Cobol_typeck.Outputs.t) =
+let describe_data_definition_at_pos
+    ?(always_show_hover_definition_text_in_data_div = false)
+    ~rev_comments ~uri position (checked_doc : Cobol_typeck.Outputs.t) =
   let Cobol_typeck.Outputs.{ group; _ } = checked_doc in
   let filename = Lsp.Uri.to_path uri in
   match Lsp_lookup.element_at_position ~uri position group with
@@ -594,25 +602,30 @@ let data_definition_on_hover
       enclosing_compilation_unit_name = Some cu_name } ->
       try
         let data_def, hover_loc
-          = lookup_data_definition_for_hover cu_name ele_at_pos group in
+          = lookup_data_definition cu_name ele_at_pos group in
+        let data_def_loc = Cobol_data.Item.def_loc data_def in
         let doc_comments = doc_of_datadef ~rev_comments ~filename data_def in
+        let pp_documentation ppf =
+          if doc_comments <> ""
+          then Pretty.print ppf "\n---\n%s" doc_comments
+        in
         let text =
           if always_show_hover_definition_text_in_data_div ||
-             not (Lsp_position.is_in_srcloc ~filename position @@
-                  Cobol_data.Item.def_loc data_def)
-          then Some (Pretty.to_string "%a%s"
-                       Lsp_data_info_printer.pp_data_definition data_def doc_comments)
+             not (Lsp_position.is_in_srcloc ~filename position data_def_loc)
+          then Some (Pretty.to_string "%a%t"
+                       Lsp_data_info_printer.pp_data_definition data_def
+                       pp_documentation)
           else None
         in
         Some (text, hover_loc)
       with Not_found ->
         None
 
-let data_references_on_hover ~rootdir ~textDocument position checked_doc =
+let data_references ~rootdir ~textDocument position checked_doc =
   let context = ReferenceContext.create ~includeDeclaration:true in
   let params = ReferenceParams.create ~context ~position ~textDocument () in
+  Option.map List.length @@
   lookup_references_in_doc ~rootdir params checked_doc
-  |> Option.map List.length
 
 
 let hover_markdown ~filename ~loc value =
@@ -646,7 +659,7 @@ let preproc_info_on_hover ~filename position pplog =
   | Some Replacement { matched_loc = loc; replacement_text; _ } ->
       Some (cobol_code "%a" Cobol_preproc.Text.pp_text replacement_text, loc)
   | Some FileCopy { copyloc = loc; status = CopyDone lib | CyclicCopy lib } ->
-      (match EzFile.read_file lib with
+      (match Lsp_platform.record.read_text_file lib with
        | "" -> None
        | text -> Some (cobol_code "%s" text, loc))
   | Some FileCopy { status = MissingCopy _; _ }
@@ -664,11 +677,13 @@ let handle_hover ?always_show_hover_definition_text_in_data_div
     ~f:begin fun ~doc:{ project; artifacts = { pplog; rev_comments; _ }; _ } checked_doc ->
       let rootdir = Lsp_project.(string_of_rootdir @@ rootdir project) in
       let ref_count () =
-        data_references_on_hover ~rootdir ~textDocument:doc position checked_doc
+        data_references ~rootdir ~textDocument:doc position checked_doc
       in
-      match data_definition_on_hover ~uri:doc.uri position checked_doc
-              ?always_show_hover_definition_text_in_data_div ~rev_comments,
-            preproc_info_on_hover ~filename position pplog with
+      match
+        describe_data_definition_at_pos ~uri:doc.uri position checked_doc
+          ?always_show_hover_definition_text_in_data_div ~rev_comments,
+        preproc_info_on_hover ~filename position pplog
+      with
       | None, None ->
           None
       | Some (None, loc), None ->
@@ -771,7 +786,8 @@ let codelens_positions ~uri group =
                                       field_leading_ranges;
                                       field_offset; field_size; field_layout;
                                       field_conditions; field_redefinitions;
-                                      field_length_variability = _ } acc =
+                                      field_length_variability = _;
+                                      field_has_definition_issues = _ } acc =
         ignore(field_redefines, field_leading_ranges, field_offset, field_size);
         skip @@ begin acc
           |> Cobol_ptree.Terms_visitor.fold_qualname'_opt v field_qualname
@@ -781,8 +797,10 @@ let codelens_positions ~uri group =
         end
       method! fold_table_definition { table_field; table_offset; table_size;
                                       table_range; table_init_values;
-                                      table_redefines; table_redefinitions } acc =
-        ignore(table_offset, table_size, table_init_values, table_redefines);
+                                      table_redefines; table_redefinitions;
+                                      table_has_definition_issues } acc =
+        ignore(table_offset, table_size, table_init_values, table_redefines,
+               table_has_definition_issues);
         skip @@ begin acc
           |> fold_field_definition' v table_field
           |> fold_table_range v table_range

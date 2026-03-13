@@ -15,8 +15,11 @@ open Ez_file.V1
 open Autofonce_lib
 open Autofonce_config
 open Autofonce_core.Types
+open Testsuite_utils
 
 let () =
+  (* Be sure we can diff reference expected outputs: *)
+  Stdlib.set_binary_mode_out stdout true;
   Cobol_common.init_default_exn_printers ();
   (* Disable backtrace recording so `OCAMLRUNPARAM=b` has no effect on the
      output of tests that fail expectedly. *)
@@ -67,14 +70,17 @@ let pp_relloc ppf s =
 let make_n_enter_rundir () =
   Superbol_testutils.Tempdir.make_n_enter "superbol-gnucobol-tests"
 
-(* Read the testsuite. *)
+(* Read the testsuite: should be named `testsuite` in `.autofonce` file *)
 
 let _pconf, _tconf, testsuite =
-  let toml = Filename.concat srcdir ".autofonce" in
+  let toml = EzFile.concat srcdir ".autofonce" in
   let contents = EzFile.read_file toml in
   let project_config =
     Project_config.from_string ~computed:false ~file:toml contents in
-  Testsuite.read project_config (List.hd project_config.project_testsuites)
+  Testsuite.read project_config @@
+  List.find begin fun (t: Autofonce_config.Types.testsuite_config) ->
+    t.config_name = "testsuite"
+  end project_config.project_testsuites
 
 (* let init_test_filter () = *)
 (*   let open Ezcmd.V2.EZCMD.TYPES in *)
@@ -134,7 +140,7 @@ let setup_input ~filename contents =
   let oc = open_out filename in
   output_string oc contents;
   close_out oc;
-  Cobol_preproc.String { contents; filename }
+  Cobol_preproc.Input.string ~filename contents
 
 let delete_file ~filename =
   Ez_file.FileString.remove filename
@@ -166,7 +172,7 @@ let guess_source_format ~filename ~command =   (* hackish detection of format *)
     lazy (command_matchp free_flag_regexp),   Cobol_config.(SF SFFree);
     lazy (command_matchp fixd_format_regexp), Cobol_config.(SF SFFixed);
     lazy (command_matchp free_format_regexp), Cobol_config.(SF SFFree);
-    lazy (command_matchp cb85_format_regexp), Cobol_config.(SF SFFixed);
+    lazy (command_matchp cb85_format_regexp), Cobol_config.(SF SFCOBOL85);
     lazy (command_matchp vrbl_format_regexp), Cobol_config.(SF SFVariable);
     lazy (command_matchp xopn_format_regexp), Cobol_config.(SF SFXOpen);
     lazy (command_matchp xcrd_format_regexp), Cobol_config.(SF SFxCard);
@@ -183,6 +189,7 @@ let default_parser_options =
 
 let do_check_parse (test_filename, contents, _, { check_loc;
                                                   check_command; _ }) =
+  let check_loc = { check_loc with file = Slashifier.slashify check_loc.file } in
   let filename = filename_for_loc test_filename check_loc in
   let terminate result_fmt =
     delete_file ~filename;
@@ -197,7 +204,8 @@ let do_check_parse (test_filename, contents, _, { check_loc;
   let parse_simple input =
     input |>
     Cobol_preproc.preprocessor
-      ~options:Cobol_preproc.Options.{ default with source_format } |>
+      ~options:{ default_preproc_options with
+                 source_format } |>
     Cobol_parser.parse_simple
       ~options:default_parser_options
   in
@@ -205,10 +213,12 @@ let do_check_parse (test_filename, contents, _, { check_loc;
     let input = setup_input ~filename contents in
     match parse_simple input with
     | { result = Only Some _; _ } as res ->
-        Cobol_parser.Outputs.sink_result ~set_status:false ~ppf:Fmt.stdout res;
+        Cobol_parser.Outputs.sink_result ~set_status:false ~platform
+          ~ppf:Fmt.stdout res;
         terminate "ok"
     | res ->
-        Cobol_parser.Outputs.sink_result ~set_status:false ~ppf:Fmt.stdout res;
+        Cobol_parser.Outputs.sink_result ~set_status:false ~platform
+          ~ppf:Fmt.stdout res;
         terminate "ok (with errors)"
     | exception e ->
         Pretty.out "Failure (%s)@\n%s@\n" (Printexc.to_string e) contents;

@@ -28,9 +28,9 @@ type usage =
   | Binary of (* [`numeric] *) picture
   | Binary_C_long of signedness                         (* GnuCOBOL *)
   | Binary_char of signedness                           (* +COB2002 *)
-  | Binary_double of signedness                         (* +COB2002 *)
-  | Binary_long of signedness                           (* +COB2002 *)
-  | Binary_short of signedness                          (* +COB2002 *)
+  | Binary_double of binary_range_properties            (* +COB2002 *)
+  | Binary_long of binary_range_properties              (* +COB2002 *)
+  | Binary_short of binary_range_properties             (* +COB2002 *)
   | Bit of (* [`boolean] *) picture
   | Display of (* [any] *) picture
   | Float_binary of { width: [`W32|`W64|`W128];                   (* +COB2002 *)
@@ -46,22 +46,26 @@ type usage =
   | Index
   | National of (* [any] *) picture
   | Object_reference of Cobol_ptree.object_reference_kind option       (* tmp *)
-  | Packed_decimal of (* [`numeric] *) picture
+  | Packed_decimal of
+      {
+        picture: (* [`numeric] *) picture;
+        with_sign_nibble: bool; (* distinguishes COMP-6 from COMP-3/PACKED-DECIMAL *)
+      }
   | Pointer of Cobol_ptree.name with_loc option                        (* tmp *)
   | Program_pointer of Cobol_ptree.name with_loc option                (* tmp *)
 and signedness = { signed: bool }
+and binary_range_properties =
+  {
+    signed: bool;
+    digits: int option;
+    scaling: int;
+  }
 
 type data_storage =
   | File of Cobol_ptree.name with_loc
   | Local_storage
   | Working_storage
   | Linkage                                                          (* file? *)
-
-let pp_data_storage ppf = function
-  | File n -> Fmt.pf ppf "FILE@ %a" Cobol_ptree.pp_name' n
-  | Local_storage -> Fmt.string ppf "LOCAL-STORAGE"
-  | Working_storage -> Fmt.string ppf "WORKING-STORAGE"
-  | Linkage -> Fmt.string ppf "LINKAGE"
 
 type length_variability =
   | Fixed_length
@@ -79,20 +83,24 @@ and item_definitions = item_definition with_loc nel
 and item_redefinitions = item_definition with_loc list
 
 and item_definition =
-  | Field of field_definition
-  | Table of table_definition
+  | Field of field_definition (** for data items without OCCURS clause *)
+  | Table of table_definition (** for data items with an OCCURS clause *)
 
 and field_definition =
   {
     field_qualname: Cobol_ptree.qualname with_loc option;
-    field_redefines: Cobol_ptree.qualname with_loc option;      (* redef only *)
     field_leading_ranges: table_range list;
     field_offset: Data_memory.offset;         (** offset w.r.t record address *)
     field_size: Data_memory.size;
     field_layout: field_layout;
     field_length_variability: length_variability;
-    field_conditions: condition_names;
-    field_redefinitions: item_redefinitions;
+    field_conditions: condition_names; (** Named conditions on the value of this field. *)
+    field_redefines: Cobol_ptree.qualname with_loc option; (** 
+      Set iff this field is a redefinition. 
+      In that case this field appears inside item_redefinitions of the item it redefines. 
+      Later, we may create instead a item_redefinition type. *)
+    field_redefinitions: item_redefinitions; (** List of alternative definitions for this field *)
+    field_has_definition_issues: bool;
   }
 
 and field_layout =
@@ -113,8 +121,11 @@ and table_definition =
     table_size: Data_memory.size;
     table_range: table_range;
     table_init_values: Cobol_ptree.literal with_loc list;     (* list for now *)
-    table_redefines: Cobol_ptree.qualname with_loc option;    (* redef only *)
-    table_redefinitions: item_redefinitions;
+    table_redefines: Cobol_ptree.qualname with_loc option; (* same as [field_redefines] but for tables *)
+    table_redefinitions: item_redefinitions; (** 
+      List of alternative definitions for the full table. 
+      Note that by default the typechecker generates a warning on table redefinition. *)
+    table_has_definition_issues: bool;
   }
 and table_range =
   {
@@ -144,6 +155,7 @@ and dynamic_span =
     occurs_dynamic_initialized: bool with_loc;
   }
 
+(** Named conditions a.k.a. level 88 items *)
 and condition_names = condition_name with_loc list
 and condition_name =
   {
@@ -171,6 +183,7 @@ and record_renaming =
     renaming_size: Data_memory.size;
     renaming_from: Cobol_ptree.qualname with_loc;
     renaming_thru: Cobol_ptree.qualname with_loc option;
+    renaming_has_definition_issues: bool;
   }
 and renamed_item_layout =
   | Renamed_elementary of
@@ -189,6 +202,8 @@ and renamed_item_layout =
 (*     const_layout: const_layout; *)
 (*   } *)
 
+(** [data_definition] provides a direct access to the pair of each item and associated record items.
+    It is used for instance to retrieve data item information from its name. *)
 type data_definition =
   | Data_field of
       {

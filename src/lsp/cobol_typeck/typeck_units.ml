@@ -16,16 +16,8 @@ open Cobol_common.Srcloc.TYPES
 open Cobol_common.Srcloc.INFIX
 
 module Visitor = Cobol_common.Visitor
-module DIAGS = Cobol_common.Diagnostics
 module CUs = Cobol_unit.Collections.SET
 module CUMap = Cobol_unit.Collections.MAP
-
-let name_of_compilation_unit: Cobol_ptree.compilation_unit -> _ = function
-  | Program { program_name = name; _ }
-  | Function { function_name = name; _ }
-  | ClassDefinition { class_name = name; _ }
-  | InterfaceDefinition { interface_name = name; _ } ->
-      Pretty.to_string "%a" Cobol_ptree.pp_name_or_literal ~&name &@<- name
 
 type acc =
   {
@@ -78,7 +70,7 @@ let build_units ~fold_exec_block' _config = object
 
     let unit =
       {
-        unit_name = name_of_compilation_unit ~&cu;
+        unit_name = Cobol_ptree.name_of_compilation_unit ~&cu;
         unit_parent_name = parent_name;
         unit_config;
         unit_data = unit_data.definitions;
@@ -124,7 +116,7 @@ end
     groups. *)
 let of_compilation_group
   : Cobol_config.t ->
-    fold_exec_block':Typeck_outputs.fold_exec_block' ->
+    fold_exec_block':Typeck_outputs.exec_block_folder ->
     Cobol_ptree.compilation_group ->
     Typeck_outputs.t Typeck_results.with_diags =
   fun config ~fold_exec_block' compilation_group_ptree ->

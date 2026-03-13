@@ -116,7 +116,7 @@ and perform_mode =
   | PerformUntil of
       {
         with_test: stage option;
-        until: condition option; (* None = UNTIL EXIT *)
+        until: cond with_loc option; (* None = UNTIL EXIT *)
       }
   | PerformVarying of
       {
@@ -131,7 +131,7 @@ and varying_phrase =
     varying_ident: ident;
     varying_from: scalar;
     varying_by: scalar option;                  (* XXX: more specialized type *)
-    varying_until: condition;
+    varying_until: cond with_loc;
   }
 
 
@@ -146,7 +146,7 @@ and search_stmt =
 
 and search_when_clause =
   {
-    search_when_cond: condition;
+    search_when_cond: cond with_loc;
     search_when_stmts: statements;
   }
 
@@ -163,7 +163,7 @@ and search_all_stmt =
 (* IF *)
 and if_stmt =
   {
-    condition: condition;
+    condition: cond with_loc;
     then_branch: statements;
     else_branch: statements;
   }
@@ -262,7 +262,7 @@ and display_stmt =
 
 and display_items_clauses =
   {
-    display_items: ident_or_literal list; (* non-empty *)
+    display_items: ident_or_literal with_loc list; (* non-empty *)
     display_clauses: display_clause with_loc list;
   }
 
@@ -307,7 +307,7 @@ and basic_arithmetic_stmt =
 and compute_stmt =
   {
     compute_targets: rounded_idents;
-    compute_expr: expression;
+    compute_expr: expr with_loc;
     compute_on_size_error: dual_handler;
   }
 
@@ -426,13 +426,13 @@ CALL (id/lit AS)? NESTED/id USING...? RETURNING...? (program-prototype)
 and call_stmt =
   {
     call_static: bool;                                            (* GnuCOBOL *)
-    call_prefix: call_prefix;
+    call_target: call_target;
     call_using: call_using_clause with_loc list;
     call_returning: ident with_loc option;
     call_error_handler: call_error_handler option;
   }
 
-and call_prefix =
+and call_target =
   | CallGeneral of ident_or_strlit
   | CallProto of
       {
@@ -564,11 +564,12 @@ let pp_call_proto ppf = function
   | CallProtoIdent i -> pp_ident ppf i
   | CallProtoNested -> Fmt.pf ppf "NESTED"
 
-let pp_call_prefix ppf = function
-  | CallGeneral i -> pp_ident_or_strlit ppf i
+let pp_call_target ppf = function
+  | CallGeneral i ->
+      pp_ident_or_strlit ppf i
   | CallProto { called; prototype } ->
-    Fmt.(option (pp_ident_or_strlit ++ any "@ AS@ ")) ppf called;
-    pp_call_proto ppf prototype
+      Fmt.(option (pp_ident_or_strlit ++ any "@ AS@ ")) ppf called;
+      pp_call_proto ppf prototype
 
 let pp_dual_handler pp ?close ?(on = Fmt.any "ON EXCEPTION") ?off ppf
   { dual_handler_pos = p; dual_handler_neg = n }
@@ -652,7 +653,7 @@ and pp_perform_mode ppf = function
     Fmt.pf ppf "UNTIL EXIT"
   | PerformUntil { with_test; until = Some until } ->
     Fmt.(option (any " TEST " ++ pp_stage ++ sp)) ppf with_test;
-    Fmt.pf ppf "UNTIL %a" pp_condition until
+    Fmt.pf ppf "UNTIL %a" pp_cond' until
   | PerformVarying { with_test; varying; after } ->
     Fmt.(option (any " TEST " ++ pp_stage ++ sp)) ppf with_test;
     Fmt.pf ppf "VARYING %a"
@@ -666,7 +667,7 @@ and pp_varying_phrase ppf
     pp_ident vi
     pp_scalar vf
     Fmt.(option (any " BY " ++ pp_scalar)) vb
-    pp_condition vu
+    pp_cond' vu
 
 (* SEARCH *)
 
@@ -691,7 +692,7 @@ and pp_search_all_stmt ppf { search_all_item = si;
   Fmt.pf ppf "@ END-SEARCH"
 
 and pp_search_when_clause ppf { search_when_cond = c; search_when_stmts = w } =
-  Fmt.pf ppf "WHEN %a@ %a" pp_condition c pp_statements w
+  Fmt.pf ppf "WHEN %a@ %a" pp_cond' c pp_statements w
 
 (* IF *)
 
@@ -703,7 +704,7 @@ and pp_if_stmt ppf { condition = c; then_branch = t; else_branch = e } =
   in
   let e = match e with [] -> None | _ -> Some e in
   Fmt.pf ppf "@[<v>IF@[<hv>@ %a%t@]@;<1 2>%a%a@ END-IF@]"
-    (Fmt.box pp_condition) c pp_then
+    (Fmt.box pp_cond') c pp_then
     (Fmt.vbox pp_statements) t
     Fmt.(option (any "@ ELSE@;<1 2>" ++ vbox pp_statements)) e
 
@@ -816,7 +817,7 @@ and pp_display_items_clauses ppf
   { display_items; display_clauses }
 =
   Fmt.pf ppf "%a%a"
-    Fmt.(list ~sep:sp pp_ident_or_literal) display_items
+    Fmt.(list ~sep:sp (pp_with_loc pp_ident_or_literal)) display_items
     Fmt.(list ~sep:sp (pp_with_loc pp_display_clause)) display_clauses
 
 and pp_display_clause ppf = function
@@ -851,7 +852,7 @@ and pp_basic_arithmetic_stmt ~sep op ppf
 
 and pp_call_stmt ppf
   { call_static = cs
-  ; call_prefix = cp
+  ; call_target = ct
   ; call_using = cu
   ; call_returning = returning
   ; call_error_handler = cho }
@@ -867,7 +868,7 @@ and pp_call_stmt ppf
   in
   Fmt.pf ppf "@[CALL %s"
     (if cs then "STATIC " else "");
-  pp_call_prefix ppf cp;
+  pp_call_target ppf ct;
   if cu != [] then
     Fmt.pf ppf "@ USING@ %a"
       Fmt.(list ~sep:sp (pp_with_loc pp_call_using_clause)) cu;
@@ -882,7 +883,7 @@ and pp_compute_stmt ppf
   { compute_targets = ts; compute_expr = e; compute_on_size_error = dh}
 =
   Fmt.pf ppf "@[COMPUTE@;<1 2>@[@[%a@] = @[%a@]@]"
-    pp_rounded_idents ts pp_expression e;
+    pp_rounded_idents ts pp_expr' e;
   pp_dual_handler pp_statement
     ~on:Fmt.(any "ON SIZE ERROR") ~close:Fmt.(any "END-COMPUTE")
     ppf dh;

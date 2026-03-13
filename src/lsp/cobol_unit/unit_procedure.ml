@@ -22,10 +22,10 @@ let rec find
   : procedure_block =
   match in_section with
   | None ->
-      Unit_qualmap.find procedure_name procedure.named
+      Unit_resolver_map.find procedure_name procedure.procedure_blocks.named
   | Some { section_paragraphs; _ } ->
       try
-        Paragraph (Unit_qualmap.find procedure_name section_paragraphs.named)
+        Paragraph (Unit_resolver_map.find procedure_name section_paragraphs.named)
       with Not_found -> find procedure_name procedure
 
 let rec full_qn
@@ -35,8 +35,9 @@ let rec full_qn
   =
   match in_section with
   | None ->
-      (Unit_qualmap.find_binding procedure_name procedure.named).full_qn
+      (Unit_resolver_map.find_binding procedure_name
+         procedure.procedure_blocks.named).full_qn
   | Some { section_paragraphs; _ } ->
       try
-        (Unit_qualmap.find_binding procedure_name section_paragraphs.named).full_qn
+        (Unit_resolver_map.find_binding procedure_name section_paragraphs.named).full_qn
       with Not_found -> full_qn procedure_name procedure

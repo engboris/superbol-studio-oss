@@ -9,13 +9,11 @@ BUILD_PLAT = $(shell node --print process.platform 2>/dev/null || echo linux)
 TARGET_PLAT ?= $(BUILD_PLAT)
 
 DUNE = opam exec -- dune
-DUNE_ARGS ?= --root=$$(pwd)
+DUNE_ARGS ?= --root="$(DUNE_ROOT)"
+DUNE_ROOT = $(if $(filter win32,${BUILD_PLAT}),$$(cygpath -w $$(pwd)),$$(pwd))
 ifneq ($(BUILD_PLAT),$(TARGET_PLAT))
 DUNE_CROSS_ARGS = $(strip $(if $(filter  win32,${TARGET_PLAT}),-x windows)	\
 			  $(if $(filter darwin,${TARGET_PLAT}),-x osx))
-endif
-ifeq ($(BUILD_STATIC_EXECS),true)
-  export LINKING_MODE=static
 endif
 
 CP ?= cp -fl
@@ -38,7 +36,7 @@ all: build
 
 build:
 	./scripts/before.sh build
-ifeq ($(TARGET_PLAT)_$(BUILD_STATIC_EXECS),$(BUILD_PLAT)_true)
+ifeq ($(TARGET_PLAT)_$(LINKING_MODE),$(BUILD_PLAT)_static)
 	./scripts/static-build.sh
 else
 	${DUNE} build!{build-profile} ${DUNE_ARGS} ${DUNE_CROSS_ARGS} @build
@@ -101,7 +99,7 @@ dev-deps:
 test:
 	./scripts/before.sh test
 	${DUNE} build ${DUNE_ARGS} ${DUNE_CROSS_ARGS} @runtest
-	${MAKE} test-syntax
+	${MAKE} test-syntax test-utf8
 	./scripts/after.sh test
 
 clean:

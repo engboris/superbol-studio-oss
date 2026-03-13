@@ -30,8 +30,8 @@ let typeck_file { preproc_options; parser_options; _ } filename =
       let cu = cu'.payload in
       cu
       (* let x_info =
-           (* May raise Not_found | Cobol_unit.Qualmap.Ambiguous _ *)
-           Cobol_unit.Qualmap.find
+           (* May raise Not_found | Cobol_unit.Resolver_map.Ambiguous _ *)
+           Cobol_unit.Resolver_map.find
              (Cobol_unit.Qual.name ( Cobol_common.Srcloc.flagit "VBFLD" Cobol_common.Srcloc.dummy))
              cu.unit_data.data_items.named
          in
@@ -44,7 +44,7 @@ let typeck_file { preproc_options; parser_options; _ } filename =
                    Pretty.out "PIC is %a@."
                      Cobol_data.Picture.pp picture;
                    (match picture.category with
-                    | FixedNum { digits = _; scale = _; with_sign = _; _ } -> ()
+                    | FixedNum { digits = _; scale = _; sign = _; _ } -> ()
                     | _ -> ())
                | Elementary_field _
                | Struct_field _ ->
@@ -61,10 +61,13 @@ let parse ~sql_in_copybooks ~copy_exts ~test_extension common files =
   List.iter
     (fun filename ->
        let common, _ = Common_args.get () in
-       let cobol_unit = typeck_file (common ()) filename in
+       let common = common () in
+       let platform = common.platform in
+       let cobol_unit = typeck_file ~platform common filename in
        let contents =
-         Sql_preproc.Main.preproc ~sql_in_copybooks ~copy_path ~copy_exts
-           ~filename ~source_format () ~cobol_unit
+         Sql_preproc.Main.preproc ()
+           ~platform ~sql_in_copybooks ~copy_path ~copy_exts ~filename
+           ~source_format ~cobol_unit
        in
        let output_file filename s =
          match filename with

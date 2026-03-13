@@ -12,7 +12,7 @@
 (**************************************************************************)
 
 module Qual = Unit_qual
-module Qualmap = Unit_qualmap
+module Resolver_map = Unit_resolver_map
 
 module Types = struct
   include Unit_types

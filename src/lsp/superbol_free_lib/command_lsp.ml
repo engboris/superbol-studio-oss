@@ -14,6 +14,7 @@
 open Ezcmd.V2
 open EZCMD.TYPES
 
+let platform = Superbol_platform.record
 
 let run_lsp ~enable_caching ~force_syntax_diagnostics ~storage
     ?(extensions = Cobol_lsp.default_extensions) () =
@@ -34,7 +35,7 @@ let run_lsp ~enable_caching ~force_syntax_diagnostics ~storage
       ~project_layout
       ?fallback_storage_directory
   in
-  match Cobol_lsp.run ~config:lsp_config ~extensions with
+  match Cobol_lsp.run ~platform ~config:lsp_config ~extensions with
   | Ok () -> ()
   | Error exit_msg -> Pretty.error "%s@." exit_msg; exit 1
 
@@ -61,9 +62,10 @@ let make_cmd ?extensions () =
   in
   let storage = ref None in
   EZCMD.sub "lsp"
-    (run_lsp ~enable_caching:!caching
-       ~force_syntax_diagnostics:!syntax_diagnostics
-       ~storage:!storage ?extensions)
+    (fun () ->
+       run_lsp ~enable_caching:!caching
+         ~force_syntax_diagnostics:!syntax_diagnostics
+         ~storage:!storage ?extensions ())
     ~doc:"run LSP server"
     ~args: (caching_args @ syntax_diagnostics_args @ js_specific_args @ [
         ["storage-directory"], Arg.String (fun s -> storage := Some s),

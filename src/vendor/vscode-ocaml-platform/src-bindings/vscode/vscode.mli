@@ -1134,6 +1134,8 @@ end
 
 module Extension : sig
   include Js.T
+
+  val packageJSON : t -> Jsonoo.t
 end
 
 module Extensions : sig
@@ -1302,6 +1304,8 @@ module ExtensionContext : sig
   val logUri : t -> Uri.t
 
   val extensionMode : t -> ExtensionMode.t
+
+  val extension : t -> Extension.t
 
   val subscribe : t -> disposable:Disposable.t -> unit
 end
@@ -2509,10 +2513,44 @@ module Commands : sig
   val getCommands : ?filterInternal:bool -> unit -> string list Promise.t
 end
 
+module EvaluatableExpression : sig
+  include Js.T
+
+  val range: t -> Range.t
+
+  val expression: t -> string or_undefined
+
+  val create : range:Range.t -> ?expression:string -> unit -> t
+end
+
+module EvaluatableExpressionProvider : sig
+  include Js.T
+
+  val provideEvaluatableExpression :
+       t
+    -> document: TextDocument.t
+    -> position: Position.t
+    -> token: CancellationToken.t
+    -> EvaluatableExpression.t ProviderResult.t
+
+  val create :
+    provideEvaluatableExpression:
+         (document: TextDocument.t
+       -> position: Position.t
+       -> token: CancellationToken.t
+       -> EvaluatableExpression.t ProviderResult.t)
+    -> t
+end
+
 module Languages : sig
   val registerDocumentFormattingEditProvider :
        selector:DocumentSelector.t
     -> provider:DocumentFormattingEditProvider.t
+    -> Disposable.t
+
+  val registerEvaluatableExpressionProvider :
+       selector:DocumentSelector.t
+    -> provider:EvaluatableExpressionProvider.t
     -> Disposable.t
 
   val registerHoverProvider :
@@ -2743,11 +2781,30 @@ module Debug : sig
     -> ?triggerKind: DebugConfigurationProviderTriggerKind.t
     -> unit
     -> Disposable.t
+
+  val registerDebugAdapterDescriptorFactory:
+    debugType: string
+    -> factory: DebugAdapterDescriptorFactory.t
+    -> unit
+    -> Disposable.t
+end
+
+module TaskFilter : sig
+  include Js.T
+
+  val type_ : t -> string or_undefined
+
+  val version : t -> string or_undefined
+
+  val create : ?type_:string -> ?version:string -> unit -> t
 end
 
 module Tasks : sig
   val registerTaskProvider :
     type_:string -> provider:Task.t TaskProvider.t -> Disposable.t
+
+  val fetchTasks :
+    ?filter:TaskFilter.t -> unit -> Task.t list Promise.t
 end
 
 module Env : sig

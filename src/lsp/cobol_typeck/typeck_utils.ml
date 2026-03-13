@@ -41,7 +41,7 @@ let size_of ~usage =
   | Bit picture ->                                     (* TODO: probably wrong *)
       MEM.(mult_int bit_size @@ PIC.data_size picture)
   | Display picture ->
-      MEM.(mult_int byte_size @@ PIC.data_size picture)
+      MEM.(mult_int byte_size @@ PIC.display_size picture)
   | Float_binary { width = `W32; _ } ->
       MEM.(mult_int byte_size 4)
   | Float_binary { width = `W64; _ } ->
@@ -68,8 +68,11 @@ let size_of ~usage =
       MEM.(mult_int byte_size @@ PIC.data_size picture * 4)
   | Object_reference _ ->
       MEM.size_of_pointer
-  | Packed_decimal picture ->
-      MEM.(mult_int byte_size @@ PIC.data_size picture / 2 + 1)
+  | Packed_decimal { picture; with_sign_nibble } ->
+      MEM.(mult_int byte_size @@
+           if with_sign_nibble
+           then PIC.data_size picture / 2 + 1
+           else (PIC.data_size picture + 1) / 2)
   | Pointer _ ->
       MEM.size_of_pointer
   | Program_pointer _ ->

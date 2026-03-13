@@ -4,7 +4,7 @@
 (cram enable)
 (name superbol-studio-oss)
 (generate_opam_files false)
-(version 0.3.1)
+(version 1.0.1)
 (formatting (enabled_for ocaml reason))
 (using menhir 2.0)
 
@@ -19,7 +19,7 @@
 
  (depends
    (ocaml (>= 4.14.0))
-   (superbol-vscode-platform (= :version))
+   (superbol-vscode-oss (= :version))
    (superbol-free (= :version))
    odoc
    (dune (and ( >= 3.17.0 )( < 3.19.0 )))
@@ -50,7 +50,7 @@
  )
 
 (package
- (name superbol-vscode-platform)
+ (name superbol-vscode-oss)
  (synopsis "SuperBOL Studio OSS Project")
  (description "SuperBOL Studio OSS is a new platform for COBOL")
  
@@ -175,7 +175,6 @@
    (ppx_deriving_encoding (and (>= 0.3.0) (< 1.0.0)))
    ezjsonm
    (ez_file (and (>= 0.3.0) (< 1.0.0)))
-   (ppx_deriving_encoding (and (>= 0.3.0) (< 1.0.0)))
    odoc
    (dune (and ( >= 3.17.0 )( < 3.19.0 )))
   )
@@ -257,10 +256,11 @@
    (ocaml (>= 4.14.0))
    (vscode-json (= :version))
    (superbol_preprocs (= :version))
+   (superbol_platform (= :version))
    (sql_preproc (= :version))
-   (lwt ( >= 5 ))
+   (lwt (and ( >= 5 )( < 5.9 )))
    (ez_toml (= :version))
-   (ez_file ( >= 0.3 ))
+   (ez_file ( >= 0.4 ))
    (ez_cmdliner (and (>= 0.3.0) (< 1.0.0)))
    (ez_api ( >= 2.0 ))
    (cobol_typeck (= :version))
@@ -268,6 +268,7 @@
    (cobol_lsp (= :version))
    (cobol_indent (= :version))
    (cobol_common (= :version))
+   (cmdliner ( < 2 ))
    odoc
    (dune (and ( >= 3.17.0 )( < 3.19.0 )))
   )
@@ -319,6 +320,26 @@
  )
 
 (package
+ (name superbol_platform)
+ (synopsis "SuperBOL Studio OSS Project")
+ (description "SuperBOL Studio OSS is a new platform for COBOL")
+ 
+  (sites
+    
+  )
+
+ (depends
+   (ocaml (>= 4.14.0))
+   (pretty (= :version))
+   (ez_file ( >= 0.5 ))
+   (cobol_preproc (= :version))
+   (cobol_common (= :version))
+   odoc
+   (dune (and ( >= 3.17.0 )( < 3.19.0 )))
+  )
+ )
+
+(package
  (name cobol_common)
  (synopsis "SuperBOL Studio OSS Project")
  (description "SuperBOL Studio OSS is a new platform for COBOL")
@@ -330,7 +351,6 @@
  (depends
    (ocaml (>= 4.14.0))
    (pretty (= :version))
-   (ocplib_stuff (and (>= 0.4.0) (< 1.0.0)))
    (ppx_deriving ( >= 5.2.1 ))
    odoc
    (dune (and ( >= 3.17.0 )( < 3.19.0 )))
@@ -348,7 +368,7 @@
 
  (depends
    (ocaml (>= 4.14.0))
-   (menhir ( >= 1.2 ))
+   (menhirLib (and ( >= 20231231 )( < 20240715 )))
    (ez_file ( >= 0.3 ))
    (ebcdic_lib (= :version))
    (cobol_ptree (= :version))
@@ -471,7 +491,7 @@
  (depends
    (ocaml (>= 4.14.0))
    (pretty (= :version))
-   (menhir ( >= 1.2 ))
+   (menhirLib (and ( >= 20231231 )( < 20240715 )))
    (cobol_common (= :version))
    (ppx_deriving ( >= 5.2.1 ))
    odoc
@@ -529,7 +549,7 @@
    (ocaml (>= 4.14.0))
    (ppx_import ( >= 1 ))
    (ppx_deriving ( >= 5.2.1 ))
-   (menhir ( >= 1.2 ))
+   (menhirLib (and ( >= 20231231 )( < 20240715 )))
    (cobol_data (= :version))
    (cobol_config (= :version))
    (cobol_common (= :version))
@@ -616,7 +636,7 @@
    (ocaml (>= 4.14.0))
    ocplib_stuff
    (menhirLib ( > 2019 ))
-   (ez_file ( >= 0.3 ))
+   (ez_file ( >= 0.4 ))
    (ISO8601 ( >= 0.2 ))
    odoc
    (dune (and ( >= 3.17.0 )( < 3.19.0 )))
@@ -660,6 +680,7 @@
    (cobol_unit (= :version))
    (cobol_typeck (= :version))
    (cobol_indent (= :version))
+   (cobol_common (= :version))
    odoc
    (dune (and ( >= 3.17.0 )( < 3.19.0 )))
   )
@@ -697,7 +718,7 @@
  (depends
    (ocaml (>= 4.14.0))
    (sql_ast (= :version))
-   (menhir ( >= 1.2 ))
+   (menhirLib (and ( >= 20231231 )( < 20240715 )))
    (ez_file ( >= 0.3 ))
    (ebcdic_lib (= :version))
    (cobol_preproc (= :version))
@@ -723,6 +744,318 @@
    (ocaml (>= 4.14.0))
    (ocamlgraph (and (>= 2.1.0) (< 3.0.0)))
    (cobol_typeck (= :version))
+   odoc
+   (dune (and ( >= 3.17.0 )( < 3.19.0 )))
+  )
+ )
+
+(package
+ (name autofonce)
+ (synopsis "A modern runner for GNU Autoconf Testsuites")
+ (description "autofonce is a modern runner for GNU Autoconf Testsuites:\nautofonce has a limited understanding of m4 macros that appear in testsuites\nwritten for the GNU Autoconf testsuites, and can run such tests in a modern\nway.\n")
+ 
+  (sites
+    
+  )
+
+ (depends
+   (ocaml (>= 4.14.0))
+   (autofonce_lib (= :version))
+   odoc
+   (dune (and ( >= 3.17.0 )( < 3.19.0 )))
+  )
+ )
+
+(package
+ (name autofonce_core)
+ (synopsis "A modern runner for GNU Autoconf Testsuites (core library)")
+ (description "autofonce is a modern runner for GNU Autoconf Testsuites:\nautofonce has a limited understanding of m4 macros that appear in testsuites\nwritten for the GNU Autoconf testsuites, and can run such tests in a modern\nway.\n")
+ 
+  (sites
+    
+  )
+
+ (depends
+   (ocaml (>= 4.14.0))
+   (ocplib_stuff ( >= 0.1 ))
+   (ez_file ( >= 0.3 ))
+   (autofonce_share (= :version))
+   (autofonce_misc (= :version))
+   (autofonce_m4 (= :version))
+   (ANSITerminal ( >= 0.8 ))
+   odoc
+   (dune (and ( >= 3.17.0 )( < 3.19.0 )))
+  )
+ )
+
+(package
+ (name autofonce_lib)
+ (synopsis "A modern runner for GNU Autoconf Testsuites (main library)")
+ (description "autofonce is a modern runner for GNU Autoconf Testsuites:\nautofonce has a limited understanding of m4 macros that appear in testsuites\nwritten for the GNU Autoconf testsuites, and can run such tests in a modern\nway.\n")
+ 
+  (sites
+    
+  )
+
+ (depends
+   (ocaml (>= 4.14.0))
+   (ocplib_stuff ( >= 0.1 ))
+   (ez_file ( >= 0.5 ))
+   (ez_cmdliner ( >= 0.4.3 ))
+   (ez_call ( >= 0.1 ))
+   (autofonce_share (= :version))
+   (autofonce_patch (= :version))
+   (autofonce_m4 (= :version))
+   (autofonce_core (= :version))
+   (autofonce_config (= :version))
+   (ANSITerminal ( >= 0.8 ))
+   odoc
+   (dune (and ( >= 3.17.0 )( < 3.19.0 )))
+  )
+ )
+
+(package
+ (name autofonce_m4)
+ (synopsis "A modern runner for GNU Autoconf Testsuites (m4 handler)")
+ (description "autofonce is a modern runner for GNU Autoconf Testsuites:\nautofonce has a limited understanding of m4 macros that appear in testsuites\nwritten for the GNU Autoconf testsuites, and can run such tests in a modern\nway.\n")
+ 
+  (sites
+    
+  )
+
+ (depends
+   (ocaml (>= 4.14.0))
+   (ocplib_stuff ( >= 0.1 ))
+   (ez_file ( >= 0.3 ))
+   (autofonce_misc (= :version))
+   odoc
+   (dune (and ( >= 3.17.0 )( < 3.19.0 )))
+  )
+ )
+
+(package
+ (name autofonce_share)
+ (synopsis "A modern runner for GNU Autoconf Testsuites (shared files)")
+ (description "autofonce is a modern runner for GNU Autoconf Testsuites:\nautofonce has a limited understanding of m4 macros that appear in testsuites\nwritten for the GNU Autoconf testsuites, and can run such tests in a modern\nway.\n")
+ 
+  (sites
+    
+  )
+
+ (depends
+   (ocaml (>= 4.14.0))
+   (crunch ( >= 3.2.0 ))
+   odoc
+   (dune (and ( >= 3.17.0 )( < 3.19.0 )))
+  )
+ )
+
+(package
+ (name autofonce_patch)
+ (synopsis "A modern runner for GNU Autoconf Testsuites (diff utilities)")
+ (description "autofonce is a modern runner for GNU Autoconf Testsuites:\nautofonce has a limited understanding of m4 macros that appear in testsuites\nwritten for the GNU Autoconf testsuites, and can run such tests in a modern\nway.\n")
+ 
+  (sites
+    
+  )
+
+ (depends
+   (ocaml (>= 4.14.0))
+   (ocplib_stuff ( >= 0.1 ))
+   (ez_file ( >= 0.5 ))
+   (autofonce_misc (= :version))
+   odoc
+   (dune (and ( >= 3.17.0 )( < 3.19.0 )))
+  )
+ )
+
+(package
+ (name autofonce_config)
+ (synopsis "A modern runner for GNU Autoconf Testsuites (configurations)")
+ (description "autofonce is a modern runner for GNU Autoconf Testsuites:\nautofonce has a limited understanding of m4 macros that appear in testsuites\nwritten for the GNU Autoconf testsuites, and can run such tests in a modern\nway.\n")
+ 
+  (sites
+    
+  )
+
+ (depends
+   (ocaml (>= 4.14.0))
+   (toml ( >= 7.0 ))
+   (ocplib_stuff ( >= 0.1 ))
+   (ez_file ( >= 0.5 ))
+   (autofonce_misc (= :version))
+   odoc
+   (dune (and ( >= 3.17.0 )( < 3.19.0 )))
+  )
+ )
+
+(package
+ (name autofonce_misc)
+ (synopsis "A modern runner for GNU Autoconf Testsuites (utilities)")
+ (description "autofonce is a modern runner for GNU Autoconf Testsuites:\nautofonce has a limited understanding of m4 macros that appear in testsuites\nwritten for the GNU Autoconf testsuites, and can run such tests in a modern\nway.\n")
+ 
+  (sites
+    
+  )
+
+ (depends
+   (ocaml (>= 4.14.0))
+   (ocplib_stuff ( >= 0.1 ))
+   (ez_file ( >= 0.4 ))
+   odoc
+   (dune (and ( >= 3.17.0 )( < 3.19.0 )))
+  )
+ )
+
+(package
+ (name ez_win32)
+ (synopsis "SuperBOL Studio OSS Project")
+ (description "SuperBOL Studio OSS is a new platform for COBOL")
+ 
+  (sites
+    
+  )
+
+ (depends
+   (ocaml (>= 4.14.0))
+   (ez_file ( >= 0.3 ))
+   odoc
+   (dune (and ( >= 3.17.0 )( < 3.19.0 )))
+  )
+ )
+
+(package
+ (name ez_call)
+ (synopsis "SuperBOL Studio OSS Project")
+ (description "SuperBOL Studio OSS is a new platform for COBOL")
+ 
+  (sites
+    
+  )
+
+ (depends
+   (ocaml (>= 4.14.0))
+   (ez_win32 ( >= 0.1 ))
+   (ez_file ( >= 0.3 ))
+   odoc
+   (dune (and ( >= 3.17.0 )( < 3.19.0 )))
+  )
+ )
+
+(package
+ (name h2mlstubs)
+ (synopsis "SuperBOL Studio OSS Project")
+ (description "SuperBOL Studio OSS is a new platform for COBOL")
+ 
+  (sites
+    
+  )
+
+ (depends
+   (ocaml (>= 4.14.0))
+   (pretty (= :version))
+   (goblint-cil ( >= 2.0.0 ))
+   (ez_file (and (>= 0.3.0) (< 1.0.0)))
+   (camlp-streams ( >= 5 ))
+   odoc
+   (dune (and ( >= 3.17.0 )( < 3.19.0 )))
+  )
+ )
+
+(package
+ (name tramabol)
+ (synopsis "SuperBOL Studio OSS Project")
+ (description "Interpreter for COBOL programs (command-line program)")
+ 
+  (sites
+    
+  )
+
+ (depends
+   (ocaml (>= 4.14.0))
+   (tramabol_lib (= :version))
+   odoc
+   (dune (and ( >= 3.17.0 )( < 3.19.0 )))
+  )
+ )
+
+(package
+ (name tramabol_lib)
+ (synopsis "SuperBOL Studio OSS Project")
+ (description "Interpreter for COBOL programs (main library)")
+ 
+  (sites
+    
+  )
+
+ (depends
+   (ocaml (>= 4.14.0))
+   (superbol_platform (= :version))
+   (superbol_free_lib (= :version))
+   (pretty (= :version))
+   (ez_cmdliner (and (>= 0.3.0) (< 1.0.0)))
+   (cobol_typeck (= :version))
+   (cobol_preproc (= :version))
+   (cobol_parser (= :version))
+   (cobol_interp (= :version))
+   (cobol_common (= :version))
+   odoc
+   (dune (and ( >= 3.17.0 )( < 3.19.0 )))
+  )
+ )
+
+(package
+ (name ezlibcob)
+ (synopsis "SuperBOL Studio OSS Project")
+ (description "SuperBOL Studio OSS is a new platform for COBOL")
+ 
+  (sites
+    
+  )
+
+ (depends
+   (ocaml (>= 4.14.0))
+   (h2mlstubs (= :version))
+   odoc
+   (dune (and ( >= 3.17.0 )( < 3.19.0 )))
+  )
+ )
+
+(package
+ (name cobol_interp)
+ (synopsis "SuperBOL Studio OSS Project")
+ (description "Interpreter for COBOL programs (core interpretation logic)")
+ 
+  (sites
+    
+  )
+
+ (depends
+   (ocaml (>= 4.14.0))
+   (pretty (= :version))
+   (ezlibcob (= :version))
+   (cobol_unit (= :version))
+   (cobol_ir (= :version))
+   (cobol_data (= :version))
+   odoc
+   (dune (and ( >= 3.17.0 )( < 3.19.0 )))
+  )
+ )
+
+(package
+ (name cobol_ir)
+ (synopsis "SuperBOL Studio OSS Project")
+ (description "Intermediate representation for COBOL programs")
+ 
+  (sites
+    
+  )
+
+ (depends
+   (ocaml (>= 4.14.0))
+   (pretty (= :version))
+   (cobol_unit (= :version))
+   (cobol_data (= :version))
    odoc
    (dune (and ( >= 3.17.0 )( < 3.19.0 )))
   )

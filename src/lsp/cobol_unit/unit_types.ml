@@ -21,9 +21,21 @@ open Cobol_common.Srcloc.TYPES
     many cases anonymous elements of [list] many not belong to [named]. *)
 type 'a named_n_ordered =
   {
-    named: 'a Unit_qualmap.t;
+    named: 'a Unit_resolver_map.t;
     list: 'a list;
   }
+
+type ('a, 'ref_name) resolved_reference =
+  {
+    resolved_name: 'ref_name;
+    resolved: 'a;                                  (* note: skipped in visitor *)
+  }
+
+type 'a resolved_name =
+  ('a, Cobol_ptree.name with_loc) resolved_reference
+
+type 'a resolved_qualname =
+  ('a, Cobol_ptree.qualname with_loc) resolved_reference
 
 (* config *)
 
@@ -32,6 +44,7 @@ type unit_config =
   {
     unit_currency_signs: Cobol_common.Basics.CharSet.t;
     unit_decimal_point: char;
+    unit_sign_config: Cobol_data.Picture.TYPES.sign_config;
   }
 
 (* TODO: add a dedicated type to hold info from the INPUT-OUTPUT SECTION. Maybe
@@ -39,9 +52,15 @@ type unit_config =
 
 (* data items *)
 
+(** [data_definitions] exposes two views on the items (fields and tables) in DATA DIVISION:
+   - [data_items] contains all the items with direct access by name.
+   - [data_records] is a list of record trees where each element represents
+      a record definition (typically a level 01 or 77 data item) *)
 type data_definitions =
   {
-    data_items: Cobol_data.Types.data_definition named_n_ordered;
+    data_items: Cobol_data.Types.data_definition named_n_ordered; (*
+      LATER: recheck if the list of ordered data_definition is useful here.
+      All the structure information should already be accessible trhough [data_records]. *)
     data_records: Cobol_data.Types.record list;
   }
 
@@ -63,7 +82,23 @@ type procedure_block =
   | Paragraph of procedure_paragraph with_loc
   | Section of procedure_section with_loc
 
-type procedure = procedure_block named_n_ordered
+type procedure_using = procedure_arg with_loc list
+
+and procedure_arg =
+  {
+    arg_data_definition: Cobol_data.Types.data_definition resolved_name;
+    arg_passing_style: arg_passing_style;
+  }
+
+and arg_passing_style =
+  | Arg_by_reference of { optional: bool }
+  | Arg_by_value
+
+type procedure =
+  {
+    procedure_using: procedure_using with_loc option; (* PROCEDURE DIVISION USING ... *)
+    procedure_blocks: procedure_block named_n_ordered;
+  }
 
 (* main *)
 

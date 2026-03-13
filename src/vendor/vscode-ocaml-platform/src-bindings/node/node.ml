@@ -50,7 +50,11 @@ module Process = struct
 
     val platform : string [@@js.global "process.platform"]
 
-    val arch : string [@@js.global "process.arch"]]
+    val arch : string [@@js.global "process.arch"]
+
+    val pid : int [@@js.global "process.pid"]
+
+    val kill : int -> ?signal:string -> unit -> unit [@@js.global "process.kill"]]
 
   module Env = struct
     include [%js: val env : Ojs.t [@@js.global "process.env"]]
@@ -63,7 +67,7 @@ module Process = struct
   end
 end
 
-module Os = [%js: val homedir : unit -> string [@@js.global "os.homedir"]]
+module Os = [%js: val homedir : unit -> string [@@js.global "__SUPERBOL__.os.homedir"]]
 
 module JsError = struct
   type t = Promise.error [@@js]
@@ -107,7 +111,13 @@ module Stream = struct
       [%js:
       val on : t -> string -> Ojs.t -> unit [@@js.call]
 
-      val write : t -> string -> unit [@@js.call]
+      val write :
+        t ->
+        string ->
+        ?encoding:string ->
+        ?callback:(JsError.t or_undefined -> unit) ->
+        unit ->
+        unit [@@js.call]
 
       val end_ : t -> unit [@@js.call]]
 
@@ -151,19 +161,21 @@ end
 module Path = struct
   include
     [%js:
-    val delimiter : string [@@js.global "path.delimiter"]
+    val delimiter : string [@@js.global "__SUPERBOL__.path.delimiter"]
 
-    val sep : string [@@js.global "path.sep"]
+    val sep : string [@@js.global "__SUPERBOL__.path.sep"]
 
-    val basename : string -> string [@@js.global "path.basename"]
+    val basename : string -> string [@@js.global "__SUPERBOL__.path.basename"]
 
-    val dirname : string -> string [@@js.global "path.dirname"]
+    val dirname : string -> string [@@js.global "__SUPERBOL__.path.dirname"]
 
-    val extname : string -> string [@@js.global "path.extname"]
+    val extname : string -> string [@@js.global "__SUPERBOL__.path.extname"]
 
-    val isAbsolute : string -> bool [@@js.global "path.isAbsolute"]
+    val isAbsolute : string -> bool [@@js.global "__SUPERBOL__.path.isAbsolute"]
 
-    val join : (string list[@js.variadic]) -> string [@@js.global "path.join"]]
+    val join : (string list[@js.variadic]) -> string [@@js.global "__SUPERBOL__.path.join"]
+
+    val resolve : (string list[@js.variadic]) -> string [@@js.global "__SUPERBOL__.path.resolve"]]
 
   let delimiter =
     assert (String.length delimiter = 1);
@@ -177,20 +189,22 @@ end
 module Fs = struct
   include
     [%js:
-    val readDir : string -> string list Promise.t [@@js.global "fs.readDir"]
+    val readDir : string -> string list Promise.t [@@js.global "__SUPERBOL__.fs.readDir"]
 
     val readFile : string -> encoding:string -> string Promise.t
-      [@@js.global "fs.readFile"]
+      [@@js.global "__SUPERBOL__.fs.readFile"]
 
-    val exists : string -> bool Promise.t [@@js.global "fs.exists"]
+    val exists : string -> bool Promise.t [@@js.global "__SUPERBOL__.fs.exists"]
 
-    val existsSync : string -> bool [@@js.global "fs.existsSync"]
+    val existsSync : string -> bool [@@js.global "__SUPERBOL__.fs.existsSync"]
 
-    val writeFileSync : string -> string -> unit [@@js.global "fs.writeFileSync"]
+    val realpathSync : string -> string [@@js.global "__SUPERBOL__.fs.realpathSync"]
 
-    val mkdirSync : string -> recursive:bool -> unit [@@js.global "fs.mkdirSync"]
+    val writeFileSync : string -> string -> unit [@@js.global "__SUPERBOL__.fs.writeFileSync"]
 
-    val unlinkSync : string -> unit [@@js.global "fs.unlinkSync"]]
+    val mkdirSync : string -> recursive:bool -> unit [@@js.global "__SUPERBOL__.fs.mkdirSync"]
+
+    val unlinkSync : string -> unit [@@js.global "__SUPERBOL__.fs.unlinkSync"]]
 
   let readDir path =
     readDir path
@@ -206,7 +220,7 @@ module Net = struct
 
     include
       [%js:
-      val make : unit -> t [@@js.new "net.Socket"]
+      val make : unit -> t [@@js.new "__SUPERBOL__.net.Socket"]
 
       val isPaused : t -> bool [@@js.call]
 
@@ -233,7 +247,13 @@ module ChildProcess = struct
 
     include
       [%js:
-      val create : ?cwd:string -> ?env:string Dict.t -> unit -> t [@@js.builder]]
+      val create :
+           ?cwd:string
+        -> ?env:string Dict.t
+        -> ?detached:bool
+        -> ?stdio:string
+        -> unit
+        -> t [@@js.builder]]
   end
 
   include
@@ -246,10 +266,10 @@ module ChildProcess = struct
       -> ?callback:(exec_result or_undefined -> string -> string -> unit)
       -> unit
       -> t
-      [@@js.global "child_process.exec"]
+      [@@js.global "__SUPERBOL__.child_process.exec"]
 
     val spawn : string -> string array -> ?options:Options.t -> unit -> t
-      [@@js.global "child_process.spawn"]
+      [@@js.global "__SUPERBOL__.child_process.spawn"]
 
     val get_stdout : t -> Stream.Readable.t [@@js.get "stdout"]
 
@@ -257,9 +277,13 @@ module ChildProcess = struct
 
     val get_stdin : t -> Stream.Writable.t [@@js.get "stdin"]
 
+    val get_pid : t -> int [@@js.get "pid"]
+
     val kill : t -> ?signal:string -> unit -> unit [@@js.call]
 
-    val on : t -> string -> Ojs.t -> unit [@@js.call]]
+    val on : t -> string -> Ojs.t -> unit [@@js.call]
+
+    val unref : t -> t [@@js.get]]
 
   let spawn_process = spawn
 
@@ -269,8 +293,8 @@ module ChildProcess = struct
     | `Disconnect f -> on t "disconnect" @@ [%js.of: unit -> unit] f
     | `Error f -> on t "error" @@ [%js.of: err:JsError.t -> unit] f
     | `Exit f -> on t "exit" @@ [%js.of: code:int -> ?signal:string -> unit -> unit] f
-    | `Message f ->
-      on t "message" @@ [%js.of: message:Ojs.t -> sendHandle:Ojs.t -> unit] f
+    | `Message f -> on t "message" @@ [%js.of: message:Ojs.t -> sendHandle:Ojs.t -> unit] f
+    | `Spawn f -> on t "spawn" @@ [%js.of: unit -> unit] f
 
   type return =
     { exitCode : int
@@ -329,7 +353,7 @@ module ChildProcess = struct
 
     match stdin with
     | Some text ->
-      Stream.Writable.write (get_stdin cp) text;
+      Stream.Writable.write (get_stdin cp) text ();
       Stream.Writable.end_ (get_stdin cp)
     | None -> ()
 
@@ -363,7 +387,7 @@ module Events = struct
         args:(Js.Any.t list [@js.variadic])
         -> unit
 
-      val create: ?options: EventEmitterOptions.t -> unit -> t [@@js.new "events.EventEmitter"]
+      val create: ?options: EventEmitterOptions.t -> unit -> t [@@js.new "__SUPERBOL__.events.EventEmitter"]
       val addListener:
            t
         -> eventName: string

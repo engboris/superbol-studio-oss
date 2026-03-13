@@ -9,18 +9,16 @@ BUILD_PLAT = $(shell node --print process.platform 2>/dev/null || echo linux)
 TARGET_PLAT ?= $(BUILD_PLAT)
 
 DUNE = opam exec -- dune
-DUNE_ARGS ?= --root=$$(pwd)
+DUNE_ARGS ?= --root="$(DUNE_ROOT)"
+DUNE_ROOT = $(if $(filter win32,${BUILD_PLAT}),$$(cygpath -w $$(pwd)),$$(pwd))
 ifneq ($(BUILD_PLAT),$(TARGET_PLAT))
 DUNE_CROSS_ARGS = $(strip $(if $(filter  win32,${TARGET_PLAT}),-x windows)	\
 			  $(if $(filter darwin,${TARGET_PLAT}),-x osx))
 endif
-ifeq ($(BUILD_STATIC_EXECS),true)
-  export LINKING_MODE=static
-endif
 
 CP ?= cp -fl
 
-VERSION = 0.3.1
+VERSION = 1.0.1
 DEV_DEPS := merlin ocamlformat odoc
 
 
@@ -38,7 +36,7 @@ all: build
 
 build:
 	./scripts/before.sh build
-ifeq ($(TARGET_PLAT)_$(BUILD_STATIC_EXECS),$(BUILD_PLAT)_true)
+ifeq ($(TARGET_PLAT)_$(LINKING_MODE),$(BUILD_PLAT)_static)
 	./scripts/static-build.sh
 else
 	${DUNE} build ${DUNE_ARGS} ${DUNE_CROSS_ARGS} @build
@@ -46,7 +44,7 @@ else
   # check on %context_name in dune files.
   ifeq ($(TARGET_PLAT),linux)
 	${DUNE} build ${DUNE_ARGS} ${DUNE_CROSS_ARGS} @install
-	./scripts/copy-bin.sh superbol-studio-oss superbol-vscode-lib superbol-vscode-platform interop-js-stubs node-js-stubs vscode-js-stubs vscode-languageclient-js-stubs vscode-json vscode-debugadapter vscode-debugprotocol superbol-free superbol_free_lib superbol_preprocs superbol_project cobol_common cobol_parser cobol_ptree ebcdic_lib cobol_lsp ppx_cobcflags pretty cobol_config cobol_indent cobol_indent_old cobol_preproc cobol_data cobol_typeck cobol_unit ez_toml ezr_toml sql_preproc sql_ast sql_parser cobol_cfg
+	./scripts/copy-bin.sh superbol-studio-oss superbol-vscode-lib superbol-vscode-oss interop-js-stubs node-js-stubs vscode-js-stubs vscode-languageclient-js-stubs vscode-json vscode-debugadapter vscode-debugprotocol superbol-free superbol_free_lib superbol_preprocs superbol_project superbol_platform cobol_common cobol_parser cobol_ptree ebcdic_lib cobol_lsp ppx_cobcflags pretty cobol_config cobol_indent cobol_indent_old cobol_preproc cobol_data cobol_typeck cobol_unit ez_toml ezr_toml sql_preproc sql_ast sql_parser cobol_cfg autofonce autofonce_core autofonce_lib autofonce_m4 autofonce_share autofonce_patch autofonce_config autofonce_misc ez_win32 ez_call h2mlstubs tramabol tramabol_lib ezlibcob cobol_interp cobol_ir
   endif
 endif
 	./scripts/after.sh build
@@ -101,7 +99,7 @@ dev-deps:
 test:
 	./scripts/before.sh test
 	${DUNE} build ${DUNE_ARGS} ${DUNE_CROSS_ARGS} @runtest
-	${MAKE} test-syntax
+	${MAKE} test-syntax test-utf8
 	./scripts/after.sh test
 
 clean:

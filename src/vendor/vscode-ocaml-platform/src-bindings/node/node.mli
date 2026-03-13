@@ -44,6 +44,10 @@ module Process : sig
 
   val arch : string
 
+  val pid : int
+
+  val kill : int -> ?signal:string -> unit -> unit
+
   module Env : sig
     val get : string -> string option
 
@@ -116,7 +120,13 @@ module Stream : sig
          ]
       -> unit
 
-    val write : t -> string -> unit
+    val write :
+      t ->
+      string ->
+      ?encoding:string ->
+      ?callback:(JsError.t or_undefined -> unit) ->
+      unit ->
+      unit
 
     val end_ : t -> unit
   end
@@ -136,6 +146,8 @@ module Path : sig
   val isAbsolute : string -> bool
 
   val join : string list -> string
+
+  val resolve : string list -> string
 end
 
 module Os : sig
@@ -150,6 +162,8 @@ module Fs : sig
   val exists : string -> bool Promise.t
 
   val existsSync : string -> bool
+
+  val realpathSync : string -> string
 
   val writeFileSync : string -> string -> unit
 
@@ -192,7 +206,13 @@ module ChildProcess : sig
   module Options : sig
     type t
 
-    val create : ?cwd:string -> ?env:string Interop.Dict.t -> unit -> t
+    val create :
+         ?cwd:string
+      -> ?env:string Interop.Dict.t
+      -> ?detached:bool
+      -> ?stdio:string
+      -> unit
+      -> t
   end
 
   type return =
@@ -216,6 +236,10 @@ module ChildProcess : sig
 
   val get_stderr : t -> Stream.Readable.t
 
+  val get_stdin : t -> Stream.Writable.t
+
+  val get_pid : t -> int
+
   val kill : t -> ?signal:string -> unit -> unit
 
   val on :
@@ -224,8 +248,12 @@ module ChildProcess : sig
        | `Disconnect of unit -> unit
        | `Error of err:JsError.t -> unit
        | `Exit of code:int -> ?signal:string -> unit -> unit
+       | `Message of message:Ojs.t -> sendHandle:Ojs.t -> unit
+       | `Spawn of unit -> unit
        ]
     -> unit
+
+  val unref : t -> t
 
   (** High-level API that waits for process to complete *)
 

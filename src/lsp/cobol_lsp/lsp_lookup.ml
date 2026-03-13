@@ -197,6 +197,10 @@ let element_at_position ~uri pos group : element_at_position =
       | Procedure _ ->            (* for now, no more info, data-name expected *)
           on_data_name qn acc
 
+    method! fold_resolved_name { resolved_name; _ } acc =
+      let qn = qualname_at_pos ~filename (Name resolved_name) pos in
+      Visitor.skip_children @@ on_data_name qn acc
+
     method! fold_procedure_name qn acc =
       Visitor.skip_children @@
       on_proc_name (qualname_at_pos ~filename qn pos) acc
@@ -230,16 +234,6 @@ let element_at_position ~uri pos group : element_at_position =
   end group init |> result
 
 (* --- *)
-
-(* Using Lsp_position.sieve would be overkill for nodes that are close to the AST root, like COBOL units *)
-let cobol_unit_at_pos ~filename pos group =
-  Cobol_unit.Visitor.fold_unit_group object
-    inherit [_] Cobol_unit.Visitor.folder
-    method! fold_cobol_unit' cu acc =
-      if Lsp_position.is_in_srcloc ~filename pos ~@cu
-      then Visitor.skip_children @@ Some ~&cu
-      else Visitor.skip_children acc
-  end group None
 
 let last_cobol_unit_before_pos ~filename pos group =
   Cobol_unit.Visitor.fold_unit_group object
@@ -353,7 +347,7 @@ let type_at_pos ~filename (pos: Lsp.Types.Position.t) group : approx_typing_info
         |> Pointer @>@ fold_ident'_opt v al.allocate_returning
         |> skip
 
-      method! fold_call_prefix p acc =
+      method! fold_call_target p acc =
         begin match p with
           | CallGeneral i ->
             acc
@@ -374,7 +368,7 @@ let type_at_pos ~filename (pos: Lsp.Types.Position.t) group : approx_typing_info
         acc
         |> [Numeric; NumericEdited; Boolean]
         @>>@ fold_rounded_idents v c.compute_targets
-        |> Any @>@ fold_expr v c.compute_expr
+        |> Any @>@ fold_expr' v c.compute_expr
         |> fold_dual_handler v c.compute_on_size_error
         |> skip
 
@@ -544,8 +538,8 @@ let proc_at_pos ~filename (pos: Lsp.Types.Position.t) group : procedure_at_posit
     method! fold_procedure_paragraph { paragraph_name; _ } { cu; _ } =
       let proc_name = match cu, paragraph_name with
         | Some cu, Some qn ->
-          Some (Cobol_unit.Qualmap.find_binding
-                  ~&qn cu.unit_procedure.named).full_qn
+          Some (Cobol_unit.Resolver_map.find_binding
+                  ~&qn cu.unit_procedure.procedure_blocks.named).full_qn
         | _ -> None
       in
       skip { cu; proc_name }

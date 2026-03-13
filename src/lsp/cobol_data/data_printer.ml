@@ -23,9 +23,15 @@ let pp_int' = Cobol_ptree.pp_with_loc Fmt.int
 let pp_int'_opt = Fmt.option pp_int'
 let pp_qualname'_opt = Fmt.option Cobol_ptree.pp_qualname'
 let pp_qualname'_list = Fmt.(hbox (list ~sep:comma Cobol_ptree.pp_qualname'))
-  (* Pretty.list ~fopen:"@[<h>" ~fsep:",@;" ~fclose:"@]" Cobol_ptree.pp_qualname' *)
+(* Pretty.list ~fopen:"@[<h>" ~fsep:",@;" ~fclose:"@]" Cobol_ptree.pp_qualname' *)
 let pp_literal'_opt = Fmt.option Cobol_ptree.pp_literal'
 let pp_literal'_list = Fmt.list Cobol_ptree.pp_literal'
+
+let pp_data_storage ppf = function
+  | File n -> Fmt.pf ppf "FILE@ %a" Cobol_ptree.pp_name' n
+  | Local_storage -> Fmt.string ppf "LOCAL-STORAGE"
+  | Working_storage -> Fmt.string ppf "WORKING-STORAGE"
+  | Linkage -> Fmt.string ppf "LINKAGE"
 
 (* usage *)
 
@@ -41,6 +47,8 @@ let pp_usage: usage Pretty.printer =
   and pp_width_tag ppf tag =
     Fmt.int ppf @@
     match tag with `W16 -> 16 | `W32 -> 32 | `W34 -> 34 | `W64 -> 64 | `W128 -> 128
+  and pp_range_extended_tag ppf digits =
+    if digits = None then Fmt.string ppf "(range-extended)"
   in
   fun ppf -> function
     | Binary picture ->
@@ -49,12 +57,15 @@ let pp_usage: usage Pretty.printer =
         pp_usage_with_sign ppf "binary-c-long" signed
     | Binary_char { signed } ->
         pp_usage_with_sign ppf "binary-char" signed
-    | Binary_double { signed } ->
-        pp_usage_with_sign ppf "binary-double" signed
-    | Binary_long { signed } ->
-        pp_usage_with_sign ppf "binary-long" signed
-    | Binary_short { signed } ->
-        pp_usage_with_sign ppf "binary-short" signed
+    | Binary_double { signed; digits; _ } ->
+        pp_usage_with_sign ppf "binary-double" signed;
+        pp_range_extended_tag ppf digits
+    | Binary_long { signed; digits; _ } ->
+        pp_usage_with_sign ppf "binary-long" signed;
+        pp_range_extended_tag ppf digits
+    | Binary_short { signed; digits; _ } ->
+        pp_usage_with_sign ppf "binary-short" signed;
+        pp_range_extended_tag ppf digits
     | Bit picture ->
         pp_usage_with_picture ppf "bit" picture
     | Display picture ->
@@ -85,8 +96,10 @@ let pp_usage: usage Pretty.printer =
         pp_usage_with_picture ppf "national" picture
     | Object_reference _ ->
         Pretty.print ppf "object reference"
-    | Packed_decimal picture ->
-        pp_usage_with_picture ppf "packed-decimal" picture
+    | Packed_decimal { picture; with_sign_nibble } ->
+        pp_usage_with_picture ppf
+          (if with_sign_nibble then "packed-decimal" else "packed-decimal-no-sign")
+          picture
     | Pointer _ ->
         Pretty.print ppf "pointer"
     | Program_pointer _ ->
@@ -155,6 +168,8 @@ and pp_field_definition: field_definition Pretty.printer = fun ppf x ->
     I ((fun x -> x.field_qualname <> None),
        Fmt.field "qualname" (fun x -> x.field_qualname) pp_qualname'_opt,
        Fmt.(styled `Yellow @@ any "filler"));
+    C ((fun x -> x.field_has_definition_issues),
+       Fmt.any "/!\\ with_errors /!\\");
     C ((fun x -> x.field_redefines <> None),
        Fmt.field "redefines" (fun x -> x.field_redefines) pp_qualname'_opt);
     C ((fun x -> x.field_leading_ranges <> []),
@@ -196,6 +211,8 @@ and pp_field_layout: field_layout Pretty.printer = fun ppf -> function
 and pp_table_definition: table_definition Pretty.printer = fun ppf x ->
   Pretty.record_with_conditional_fields [
     T Fmt.(styled `Yellow @@ any "table");
+    C ((fun x -> x.table_has_definition_issues),
+       Fmt.any "/!\\ with_errors /!\\");
     C ((fun x -> x.table_redefines <> None),
        Fmt.field "redefines" (fun x -> x.table_redefines) pp_qualname'_opt);
     T (Fmt.field "offset" (fun x -> x.table_offset) pp_offset);
@@ -243,6 +260,8 @@ let pp_renamed_item_layout: renamed_item_layout Pretty.printer = fun ppf -> func
 let pp_record_renaming: record_renaming Pretty.printer =
   Pretty.record_with_conditional_fields [
     T (Fmt.field "qualname" (fun r -> r.renaming_name) Cobol_ptree.pp_qualname');
+    C ((fun r -> r.renaming_has_definition_issues),
+       Fmt.any "/!\\ with_errors /!\\");
     T (Fmt.field "from" (fun r -> r.renaming_from) Cobol_ptree.pp_qualname');
     C ((fun r -> r.renaming_thru <> None),
        Fmt.field "thru" (fun r -> r.renaming_thru) pp_qualname'_opt);
@@ -286,11 +305,11 @@ let pp_data_definition ppf = function
         I'(~&field.field_qualname <> None,
            Fmt.field "field" (fun () -> ~&field.field_qualname) pp_qualname'_opt,
            Fmt.field "field-offset" (fun () -> ~&field.field_offset) pp_offset);
-  T (Pretty.vfield "def" (fun () -> def) pp_condition_name');
+        T (Pretty.vfield "def" (fun () -> def) pp_condition_name');
       ] ppf ()
   | Table_index { table; record = { record_name; _ }; _ } ->
       Pretty.record_with_conditional_fields [
         T Fmt.(styled `Yellow @@ any "table index");
         T (Fmt.field "record" (fun () -> record_name) Fmt.string);
-  T (Pretty.vfield "table" (fun () -> table) pp_table_definition');
+        T (Pretty.vfield "table" (fun () -> table) pp_table_definition');
       ] ppf ()

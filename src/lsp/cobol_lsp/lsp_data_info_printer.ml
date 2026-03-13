@@ -16,7 +16,19 @@ open Cobol_data.Types
 open Cobol_common.Srcloc.TYPES
 open Cobol_common.Srcloc.INFIX
 
-let pp_size = Fmt.(any "Size: " ++ Cobol_data.Memory.pp_size ++ any " bits")
+let pp_readable_size ppf size =
+  try
+    let bits = Cobol_data.Memory.as_bits size in
+    if Int.rem bits 8 = 0 then
+      let bytes = bits / 8 in
+      Fmt.pf ppf "%u byte%s" bytes (if bytes > 1 then "s" else "")
+    else
+      Fmt.pf ppf "%u bit%s" bits (if bits > 1 then "s" else "")
+  with Cobol_data.Memory.NOT_SCALAR _ ->
+    Fmt.pf ppf "*variable*"
+
+let pp_size =
+  Fmt.(any "Size: " ++ pp_readable_size)
 
 let pp_int' = Cobol_ptree.pp_with_loc Fmt.int
 
@@ -62,8 +74,9 @@ let pp_usage: usage Pretty.printer =
       Cobol_data.Picture.pp_category picture.category
       pp_example_of picture
   and pp_usage_with_sign ppf name signed =
-    pp_cobol_block Fmt.(any "USAGE " ++ any name ++ any (if signed then " SIGNED" else " UNSIGNED"))
-    ppf ()
+    pp_cobol_block Fmt.(any "USAGE " ++ any name ++
+                        any (if signed then " SIGNED" else " UNSIGNED"))
+      ppf ()
   and pp_width_tag ppf tag =
     Fmt.int ppf @@
     match tag with `W16 -> 16 | `W32 -> 32 | `W34 -> 34 | `W64 -> 64 | `W128 -> 128
@@ -75,11 +88,11 @@ let pp_usage: usage Pretty.printer =
         pp_usage_with_sign ppf "BINARY-C-LONG" signed
     | Binary_char { signed } ->
         pp_usage_with_sign ppf "BINARY-CHAR" signed
-    | Binary_double { signed } ->
+    | Binary_double { signed; _ } ->
         pp_usage_with_sign ppf "BINARY-DOUBLE" signed
-    | Binary_long { signed } ->
+    | Binary_long { signed; _ } ->
         pp_usage_with_sign ppf "BINARY-LONG" signed
-    | Binary_short { signed } ->
+    | Binary_short { signed; _ } ->
         pp_usage_with_sign ppf "BINARY-SHORT" signed
     | Bit picture ->
         pp_usage_with_picture ppf "BIT" picture
@@ -111,8 +124,10 @@ let pp_usage: usage Pretty.printer =
         pp_usage_with_picture ppf "NATIONAL" picture
     | Object_reference _ ->
         Pretty.print ppf "Object reference"
-    | Packed_decimal picture ->
-        pp_usage_with_picture ppf "PACKED-DECIMAL" picture
+    | Packed_decimal { picture; with_sign_nibble } ->
+        pp_usage_with_picture ppf
+          (if with_sign_nibble then "PACKED-DECIMAL" else "PACKED-DECIMAL-NO-SIGN")
+          picture
     | Pointer _ ->
         Pretty.print ppf "Pointer"
     | Program_pointer _ ->
@@ -168,17 +183,32 @@ and pp_field_layout: field_layout Pretty.printer = fun ppf x ->
       Fmt.const pp_struct subfields ppf x
 
 and pp_field_definition: field_definition Pretty.printer = fun ppf x ->
-  let pp_qualname_opt_in_block' = pp_cobol_block Fmt.(option ~none:(any "FILLER") Cobol_ptree.pp_qualname')  in
-  Fmt.(
-    const pp_qualname_opt_in_block' x.field_qualname
-    ++ any "\n\n"
-    ++ const pp_field_layout x.field_layout
-    ++ (match x.field_layout with
-    | Struct_field _ -> any "  \n" ++ const pp_size x.field_size
-    | _ -> nop)
-    ++ any "  \n"
-    ++ const (option (any "Redefines:\n" ++ pp_cobol_block Cobol_ptree.pp_qualname')) x.field_redefines)
-  ppf x
+  let definition_has_issues = x.field_has_definition_issues in
+  let pp_qualname_opt_in_block' =
+    pp_cobol_block Fmt.(option ~none:(any "FILLER") Cobol_ptree.pp_qualname')
+  and pp_size ppf x =
+    match x.field_layout with
+    | Struct_field _ when not x.field_has_definition_issues ->
+        Fmt.fmt "  \n%a" ppf pp_size x.field_size
+    | _ ->
+        ()
+  in
+  match x.field_layout with
+  | Elementary_field _ when definition_has_issues ->
+      Fmt.(const pp_qualname_opt_in_block' x.field_qualname ++ any "\n\n" ++
+           any "*(layout omitted due to issues in item definition)*  \n" ++
+           const (option @@
+                  any "Redefines:\n" ++ pp_cobol_block Cobol_ptree.pp_qualname')
+             x.field_redefines)
+        ppf x
+  | _ ->
+      Fmt.(const pp_qualname_opt_in_block' x.field_qualname ++ any "\n\n" ++
+           const pp_field_layout x.field_layout ++
+           const pp_size x ++ any "  \n" ++
+           const (option @@
+                  any "Redefines:\n" ++ pp_cobol_block Cobol_ptree.pp_qualname')
+             x.field_redefines)
+        ppf x
 
 and pp_field_definition': field_definition with_loc Pretty.printer = fun ppf ->
   Cobol_ptree.pp_with_loc pp_field_definition ppf
@@ -219,18 +249,21 @@ let pp_renamed_item_layout: renamed_item_layout Pretty.printer = fun ppf x ->
       Fmt.const pp_struct subfields ppf x
 
 let pp_record_renaming: record_renaming Pretty.printer = fun ppf r ->
-  Fmt.(
-    pp_cobol_block (
-      const Cobol_ptree.pp_qualname' r.renaming_name
-      ++ any "\nRENAMES "
-      ++ const Cobol_ptree.pp_qualname' r.renaming_from
-      ++ const (option (any "\nTHRU " ++ Cobol_ptree.pp_qualname')) r.renaming_thru)
-    ++ any "\n\n"
-    ++ const pp_renamed_item_layout r.renaming_layout
-    ++ (match r.renaming_layout with
-    | Renamed_struct _ -> any "  \n" ++ const pp_size r.renaming_size
-    | _ -> nop) )
-  ppf r
+  let open Fmt in begin
+    pp_cobol_block begin
+      const Cobol_ptree.pp_qualname' r.renaming_name ++ any "\n" ++
+      if r.renaming_has_definition_issues then nop else
+        any "RENAMES " ++
+        const Cobol_ptree.pp_qualname' r.renaming_from ++
+        const (option (any "\nTHRU " ++ Cobol_ptree.pp_qualname'))
+          r.renaming_thru
+    end ++ any "\n\n" ++
+    if r.renaming_has_definition_issues then nop else
+      const pp_renamed_item_layout r.renaming_layout ++
+      match r.renaming_layout with
+      | Renamed_struct _ -> any "  \n" ++ const pp_size r.renaming_size
+      | _ -> nop
+  end ppf r
 
 let pp_record_renaming': record_renaming with_loc Pretty.printer = fun ppf ->
   Cobol_ptree.pp_with_loc pp_record_renaming ppf

@@ -11,32 +11,50 @@
 (*                                                                        *)
 (**************************************************************************)
 
+open EzCompat
 open Cobol_common.Srcloc.INFIX
 
-(** Note: won't show detailed source locations as the openned file is not
-    actually on disk (that may be fixed later with a custom internal file
-    store). *)
-
-let preprocess
+let options
     ?(verbose = false)
-    ?(filename = "prog.cob")
     ?(source_format = Cobol_config.(SF SFFixed))
-    contents =
+    ?(copybooks = [])
+    () =
+  let platform =
+      { Prog_common.platform with verbosity = if verbose then 1 else 0 }
+  in
+  let platform = if copybooks = [] then platform else
+      let copy_map = StringMap.of_list copybooks in
+      { platform with
+        read_text_file = (fun file ->
+            match StringMap.find_opt file copy_map with
+            | Some contents -> contents
+            | None -> platform.read_text_file file);
+        find_lib = (fun ~lookup_config ?fromfile ?libname textname ->
+            match textname with
+            | `Alphanum w
+            | `Word w ->
+                if StringMap.mem w copy_map then
+                  Ok w
+                else
+                  platform.find_lib ~lookup_config ?fromfile ?libname textname
+        );
+    }
+  in
+  { (Cobol_preproc.Options.default ~platform)
+    with source_format }
+
+let preprocess ?verbose ?(filename = "prog.cob") ?source_format ?copybooks contents =
   Cobol_preproc.Outputs.show_n_forget ~ppf:Fmt.stdout @@
   Cobol_preproc.preprocess_input
-    ~options:Cobol_preproc.Options.{ default with verbose; source_format } @@
-  Cobol_preproc.String { filename; contents }
+    ~options:(options ?verbose ?source_format ?copybooks ()) @@
+  Cobol_preproc.Input.string ~filename contents
 
-let show_text
-    ?(verbose = false)
-    ?(filename = "prog.cob")
-    ?(source_format = Cobol_config.(SF SFFixed))
-    contents =
+let show_text ?verbose ?(filename = "prog.cob") ?source_format contents =
+  let options = options ?verbose ?source_format () in
   let text =
     Cobol_preproc.Outputs.show_n_forget ~ppf:Fmt.stdout @@
-    Cobol_preproc.text_of_input
-      ~options:Cobol_preproc.Options.{ default with verbose; source_format } @@
-    Cobol_preproc.String { filename; contents }
+    Cobol_preproc.text_of_input ~options @@
+    Cobol_preproc.Input.string ~filename contents
   in
   Pretty.out "%a@\n" (Cobol_preproc.Text.pp_text' ~fsep:"@\n") text
 
@@ -49,11 +67,13 @@ let show_source_lines
     ?(source_format = Cobol_config.(SF SFFixed))
     contents
   =
+  let input = Cobol_preproc.Input.string ~filename contents in
   Cobol_preproc.fold_source_lines ~dialect ~source_format
+    ~platform:Prog_common.platform
     ~f:begin fun lnum line () ->
       if with_line_numbers then Pretty.out "@\n%u: " lnum else Pretty.out "@\n";
       Pretty.out "%a" Cobol_preproc.Text.pp_text line;
-    end (String { filename; contents }) ()
+    end input ()
     ~skip_compiler_directives_text:(not with_compiler_directives_text)
     ?on_compiler_directive:begin
       if not with_source_cdir_markers then None

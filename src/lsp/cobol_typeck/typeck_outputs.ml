@@ -13,7 +13,10 @@
 
 open Cobol_common.Srcloc.TYPES
 open Cobol_common.Srcloc.INFIX
+open Cobol_common.Exec_block.TYPES
+module LIST = Cobol_common.Basics.LIST
 
+(** Contains the locations of syntactic occurences for each qualified name *)
 type qualrefmap = srcloc list Cobol_unit.Qual.MAP.t
 type references_in_unit =
   {
@@ -36,15 +39,18 @@ type artifacts =
 
 type outputs =
   {
-    ptree: Cobol_ptree.compilation_group;
-    group: Cobol_unit.Types.group;
-    artifacts: artifacts;
+    ptree: Cobol_ptree.compilation_group; (** 
+      Parse tree (AST without typing information) copied in the typechecker output 
+      to ease its direct use by further passes in the analysis pipeline and queries 
+      in the LSP server. *)
+    group: Cobol_unit.Types.group; (** The typed AST view as an unordered set of cobol_unit *)
+    artifacts: artifacts; (** Other typing artifacts *)
   }
 type t = outputs
 
-
-(* An accumulator for fold_exec_block', used to collect references in
-   EXEC blocks *)
+(* TODO: move those types to a new `Typeck_external/plugins/extensions' module *)
+(* An accumulator for {!exec_block_folder}, used to collect references in EXEC
+   blocks *)
 type references_acc =
   {
     current_section: Cobol_unit.Types.procedure_section option;
@@ -52,13 +58,11 @@ type references_acc =
     diags: Typeck_diagnostics.t;
   }
 
-type fold_exec_block' =
-  register_name:(string
-                   Cobol_common.Srcloc.TYPES.with_loc ->
-                 references_acc -> references_acc) ->
-  Cobol_common.Exec_block.TYPES.exec_block
-    Cobol_common.Srcloc.TYPES.with_loc ->
-  references_acc -> references_acc
+type exec_block_folder
+  = data_definitions: Cobol_unit.Types.data_definitions
+  -> exec_block with_loc
+  -> references_acc
+  -> references_acc
 
 (* --- *)
 
@@ -82,7 +86,7 @@ let none: t =
   }
 
 let merge_qualrefmaps: qualrefmap -> qualrefmap -> qualrefmap =
-  Cobol_unit.Qual.MAP.union (fun _ a b -> Some (b @ a))   (* keep reversed order *)
+  Cobol_unit.Qual.MAP.union (fun _ a b -> Some (LIST.append ~loc:__LOC__ b a))   (* keep reversed order *)
 
 let register_qualref qn ~loc refs =
   Cobol_unit.Qual.MAP.update qn
