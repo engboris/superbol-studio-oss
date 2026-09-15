@@ -31,6 +31,12 @@
         "category": "SuperBOL"
       },
       {
+        "command": "superbol.analyze.stop",
+        "title": "Stop Analyzing the Workspace",
+        "category": "SuperBOL",
+        "enablement": "superbol.analyzing"
+      },
+      {
         "command": "superbol.copybooks.retrieve",
         "title": "Retrieve Copybook Directories",
         "category": "SuperBOL"

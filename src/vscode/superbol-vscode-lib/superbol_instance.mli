@@ -35,10 +35,13 @@ val with_context_and_client
   -> (('a, Superbol_types.error) result Promise.t as 'result)
 
 val lsp_request
-  : meth:string
+  : ?token:Vscode.CancellationToken.t
+  -> meth:string
   -> data:Jsonoo.t
   -> t
   -> (Jsonoo.t, Superbol_types.error) result Promise.t
+
+val client_is_running: t -> bool
 
 val lsp_notification
   : meth:string

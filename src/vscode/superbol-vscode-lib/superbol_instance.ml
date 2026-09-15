@@ -142,14 +142,19 @@ let write_project_config ?text_editor instance =
     Promise.Result.return
   end >>= Superbol_printer.show_error_message
 
-let lsp_request ~meth ~data instance =
+let lsp_request ?token ~meth ~data instance =
   with_context_and_client instance ~f:begin fun ~context:_ ~client ->
     let* result =
       Vscode_languageclient.LanguageClient.sendRequest client ()
-        ~meth ~data
+        ~meth ~data ?token
     in
     Promise.Result.return result
   end
+
+let client_is_running instance =
+  match client instance with
+  | None -> false
+  | Some client -> Vscode_languageclient.LanguageClient.isRunning client
 
 let lsp_notification ~meth ~data instance =
   match client instance with

@@ -30,7 +30,7 @@ type t =
 let extension_oc : Vscode.OutputChannel.t Lazy.t =
   lazy (Vscode.Window.createOutputChannel ~name:"SuperBOL Studio Extension")
 
-let log_error fmt =
+let log_line fmt =
   Printf.ksprintf
     (fun value -> OutputChannel.appendLine (Lazy.force extension_oc) ~value)
     fmt
@@ -104,8 +104,78 @@ let find_cobol_files ~token =
   in
   aux [] cobol_file_patterns
 
+(* One analysis at a time, so the status bar button knows what to stop. *)
+type run = { mutable stopped: bool }
+
+let current_run: run option ref = ref None
+
+let stop_button =
+  lazy (Window.createStatusBarItem ~alignment:StatusBarAlignment.Left
+          ~priority:10 ())
+
+(* Drives the `enablement' of the stop command in the palette. *)
+let set_analyzing analyzing =
+  let _ =
+    Commands.executeCommand ~command:"setContext"
+      ~args:[Ojs.string_to_js "superbol.analyzing"; Ojs.bool_to_js analyzing]
+  in
+  ()
+
+let start_run () =
+  let run = { stopped = false } in
+  current_run := Some run;
+  set_analyzing true;
+  let lazy button = stop_button in
+  StatusBarItem.set_text button "$(debug-stop) Stop analysis";
+  StatusBarItem.set_tooltip button "Stop the SuperBOL workspace analysis";
+  StatusBarItem.set_command button (`String "superbol.analyze.stop");
+  StatusBarItem.show button;
+  run
+
+let clear_run () =
+  current_run := None;
+  set_analyzing false;
+  StatusBarItem.hide (Lazy.force stop_button)
+
+(* Only the current run may clear the button: a wedged run can settle long
+   after the user gave up on it and started another one. *)
+let end_run run =
+  match !current_run with
+  | Some current when current == run -> clear_run ()
+  | _ -> ()
+
+let request_stop () =
+  match !current_run with
+  | None -> ()
+  | Some run -> run.stopped <- true
+
+(* Files left to analyze, kept across restarts so an interrupted run can be
+   resumed instead of started over. *)
+let pending_key = "superbol.analysis.pending"
+
+let pending_store instance =
+  ExtensionContext.workspaceState (Superbol_instance.context instance)
+
+let save_pending instance uris =
+  let _ =
+    Memento.update (pending_store instance) ~key:pending_key
+      ~value:(Jsonoo.t_to_js @@
+              Jsonoo.Encode.list Jsonoo.Encode.string @@
+              List.map (fun uri -> Uri.toString uri ()) uris)
+  in
+  ()
+
+let load_pending instance =
+  match Memento.get (pending_store instance) ~key:pending_key with
+  | None -> []
+  | Some value ->
+      try
+        List.map (fun s -> Uri.parse s ()) @@
+        Jsonoo.Decode.(list string) (Jsonoo.t_of_js value)
+      with _ -> []
+
 (* Written while the analysis runs, so a crash keeps the results found so far. *)
-let create_report () =
+let create_report ~resume =
   match Workspace.workspaceFolders () with
   | [] -> None
   | folder :: _ ->
@@ -118,10 +188,11 @@ let create_report () =
            and it fails if the directory is already there. *)
         if not (Node.Fs.existsSync dir) then
           Node.Fs.mkdirSync dir ~recursive:true;
-        Node.Fs.writeFileSync file "";
+        if not (resume && Node.Fs.existsSync file) then
+          Node.Fs.writeFileSync file "";
         Some file
       with e ->
-        log_error "SuperBOL: cannot create %s: %s" file (Printexc.to_string e);
+        log_line "SuperBOL: cannot create %s: %s" file (Printexc.to_string e);
         None
 
 let append_to_report report text =
@@ -129,20 +200,39 @@ let append_to_report report text =
   | None -> ()
   | Some file ->
       try Node.Fs.appendFileSync file text with e ->
-        log_error "SuperBOL: cannot write %s: %s" file (Printexc.to_string e)
+        log_line "SuperBOL: cannot write %s: %s" file (Printexc.to_string e)
 
 let text_document_id uri =
   Jsonoo.Encode.(object_ ["uri", string @@ Uri.toString uri ()])
 
+(* The server handles one message at a time, so a file it never answers would
+   block the whole run.  Give up on it instead of waiting for good. *)
+let request_timeout_ms = 60_000
+
+type outcome = Analyzed | Skipped | Timed_out
+
 (* The reply only comes once the server has handled the `didOpen' for [uri], so
    waiting for it paces the loop on real work. *)
-let await_analysis_of ~uri instance =
-  Superbol_instance.lsp_request instance
-    ~meth:"textDocument/documentSymbol"
-    ~data:Jsonoo.Encode.(object_ ["textDocument", text_document_id uri]) |>
-  Promise.then_
-    ~fulfilled:(fun _ -> Promise.return ())
-    ~rejected:(fun _ -> Promise.return ())
+let await_analysis_of ~uri ~token instance =
+  let timer = ref None in
+  let request =
+    Superbol_instance.lsp_request instance ~token
+      ~meth:"textDocument/documentSymbol"
+      ~data:Jsonoo.Encode.(object_ ["textDocument", text_document_id uri]) |>
+    Promise.then_
+      ~fulfilled:(fun _ -> Promise.return Analyzed)
+      ~rejected:(fun _ -> Promise.return Analyzed)
+  and timeout =
+    Promise.make begin fun ~resolve ~reject:_ ->
+      timer := Some (Node.setTimeout (fun () -> resolve Timed_out)
+                       request_timeout_ms)
+    end
+  in
+  Promise.race_list [request; timeout] |>
+  Promise.then_ ~fulfilled:begin fun outcome ->
+    Option.iter Node.clearTimeout !timer;
+    Promise.return outcome
+  end
 
 (* VS Code cannot close a document opened with `openTextDocument', so we
    notify the server ourselves and keep one document in memory at a time. *)
@@ -170,8 +260,7 @@ let is_already_open uri =
     (fun doc -> Uri.toString (TextDocument.uri doc) () = uri)
     (Workspace.textDocuments ())
 
-(* [false] when the file could not be read, so it was never analyzed. *)
-let analyze_document ~uri ~report instance =
+let analyze_document ~uri ~report ~token instance =
   let open Promise.Syntax in
   Promise.catch
     ~rejected:begin fun error ->
@@ -180,19 +269,19 @@ let analyze_document ~uri ~report instance =
           (Workspace.asRelativePath () ~pathOrUri:(`Uri uri))
           (Node.JsError.message error)
       in
-      log_error "SuperBOL: %s" value;
+      log_line "SuperBOL: %s" value;
       append_to_report report (value ^ "\n");
-      Promise.return false
+      Promise.return Skipped
     end @@
   if is_already_open uri then
-    let+ () = await_analysis_of ~uri instance in
-    true
+    await_analysis_of ~uri ~token instance
   else
     let* text = Node.Fs.readFile (Uri.fsPath uri) in
     notify_did_open ~uri ~text instance;
-    let+ () = await_analysis_of ~uri instance in
+    let+ outcome = await_analysis_of ~uri ~token instance in
+    (* Close it even on a timeout: the server may still catch up. *)
     notify_did_close ~uri instance;
-    true
+    outcome
 
 let severity_name = function
   | DiagnosticSeverity.Error -> "error"
@@ -220,7 +309,7 @@ let report_completion report ~analyzed ~skipped ~missed =
     if missed = 0 then
       Printf.sprintf "SuperBOL: analyzed %u file(s)" analyzed
     else
-      Printf.sprintf "SuperBOL: analysis interrupted after %u of %u file(s)"
+      Printf.sprintf "SuperBOL: analysis stopped after %u of %u file(s)"
         (analyzed + skipped) (analyzed + skipped + missed)
   and unread =
     if skipped = 0 then ""
@@ -255,17 +344,34 @@ let report_completion report ~analyzed ~skipped ~missed =
   in
   Promise.return ()
 
-let analyze_workspace instance ~progress ~token =
+(* Saving on every file would mean thousands of writes to the workspace
+   state, so a crash may cost the last few files. *)
+let save_pending_every = 20
+
+let analyze_workspace instance ~pending ~progress ~token =
   let open Promise.Syntax in
-  let* uris = find_cobol_files ~token in
-  let report = create_report () in
+  let* uris =
+    match pending with
+    | [] -> find_cobol_files ~token
+    | uris -> Promise.return uris
+  in
+  let run = start_run () in
+  let report = create_report ~resume:(pending <> []) in
   let total = List.length uris in
+  log_line "SuperBOL: analysis started on %u file(s)" total;
   let percent i = i * 100 / max 1 total in
+  let stop_requested () =
+    run.stopped ||
+    CancellationToken.isCancellationRequested token ||
+    not (Superbol_instance.client_is_running instance)
+  in
   let rec loop i skipped = function
-    | remaining when CancellationToken.isCancellationRequested token ->
+    | remaining when stop_requested () ->
+        save_pending instance remaining;
         report_completion report ~analyzed:(i - skipped) ~skipped
           ~missed:(List.length remaining)
     | [] ->
+        save_pending instance [];
         report_completion report ~analyzed:(i - skipped) ~skipped ~missed:0
     | uri :: remaining ->
         Progress.report progress ~value:Progress.{
@@ -273,11 +379,34 @@ let analyze_workspace instance ~progress ~token =
                             Workspace.asRelativePath () ~pathOrUri:(`Uri uri));
             increment = Some (percent (succ i) - percent i);
           };
-        let* analyzed = analyze_document ~uri ~report instance in
-        if analyzed then report_diagnostics_of ~uri report;
-        loop (succ i) (if analyzed then skipped else succ skipped) remaining
+        let* outcome = analyze_document ~uri ~report ~token instance in
+        match outcome with
+        | Timed_out ->
+            let value =
+              Printf.sprintf "%s: the server did not answer within %us, \
+                              stopping"
+                (Workspace.asRelativePath () ~pathOrUri:(`Uri uri))
+                (request_timeout_ms / 1000)
+            in
+            log_line "SuperBOL: %s" value;
+            append_to_report report (value ^ "\n");
+            run.stopped <- true;
+            loop i skipped (uri :: remaining)   (* keep it in the queue *)
+        | Analyzed | Skipped ->
+            if outcome = Analyzed then report_diagnostics_of ~uri report;
+            if succ i mod save_pending_every = 0 then
+              save_pending instance remaining;
+            loop (succ i)
+              (if outcome = Analyzed then skipped else succ skipped) remaining
   in
-  loop 0 0 uris
+  save_pending instance uris;
+  let finish () =
+    log_line "SuperBOL: analysis ended";
+    end_run run
+  in
+  match loop 0 0 uris with
+  | analysis -> Promise.finally ~f:finish analysis
+  | exception e -> finish (); raise e
 
 (* The server drops all diagnostics unless `forceSyntaxDiagnostics' is set or
    the dialect is COBOL85 (see `dispatch_diagnostics' in `lsp_server.ml').  The
@@ -321,26 +450,61 @@ let enable_syntax_diagnostics () =
   in
   ()
 
-let scan_workspace instance =
+let scan_workspace ~pending instance =
   Window.withProgress (module Interop.Js.Unit)
     ~options:(ProgressOptions.create
                 ~location:(`ProgressLocation ProgressLocation.Notification)
                 ~title:"SuperBOL: analyzing COBOL files"
                 ~cancellable:true ())
-    ~task:(analyze_workspace instance)
+    ~task:(analyze_workspace instance ~pending)
 
-let run_analysis instance =
+(* A stopped run can be resumed without restarting, so ask here too. *)
+let ask_resume instance =
+  match load_pending instance with
+  | [] ->
+      Promise.return []
+  | pending ->
+      let open Promise.Syntax in
+      let+ choice =
+        Window.showInformationMessage ()
+          ~message:(Printf.sprintf "SuperBOL: %u file(s) were left unanalyzed"
+                      (List.length pending))
+          ~choices:["Resume", `Resume; "Start Over", `Restart]
+      in
+      match choice with
+      | Some `Resume -> pending
+      | Some `Restart | None -> []
+
+let run_analysis ?pending instance =
+  match !current_run with
+  | Some _ ->
+      let open Promise.Syntax in
+      let+ choice =
+        Window.showWarningMessage ()
+          ~message:"SuperBOL: an analysis is already running"
+          ~choices:["Stop It", ()]
+      in
+      begin match choice with
+        | Some () -> request_stop (); clear_run ()
+        | None -> ()
+      end
+  | None ->
   match Superbol_instance.client instance with
   | None ->
       Superbol_printer.show_error_message @@
       Error Superbol_types.Client_not_running
   | Some _ ->
       let open Promise.Syntax in
+      let* pending =
+        match pending with
+        | Some pending -> Promise.return pending
+        | None -> ask_resume instance
+      in
       let* decision = check_diagnostics_reported () in
       match decision with
       | `Abort -> Promise.return ()
       | `Enable -> enable_syntax_diagnostics ()
-      | `Scan -> scan_workspace instance
+      | `Scan -> scan_workspace ~pending instance
 
 let _analyze_workspace =
   command "superbol.analyze.workspace" @@ Instance
@@ -348,6 +512,31 @@ let _analyze_workspace =
       let _: unit Promise.t = run_analysis instance in
       ()
     end
+
+let _stop_analysis =
+  command "superbol.analyze.stop" @@ Instance
+    begin fun _instance ~args:_ ->
+      request_stop ()
+    end
+
+(* Dismissing keeps the files pending, so the offer comes back next time. *)
+let offer_resume instance =
+  match load_pending instance with
+  | [] ->
+      Promise.return ()
+  | pending ->
+      let open Promise.Syntax in
+      let* choice =
+        Window.showInformationMessage ()
+          ~message:(Printf.sprintf
+                      "SuperBOL: a previous analysis left %u file(s) \
+                       unanalyzed" (List.length pending))
+          ~choices:["Resume", `Resume; "Discard", `Discard]
+      in
+      match choice with
+      | Some `Resume -> run_analysis ~pending instance
+      | Some `Discard -> save_pending instance []; Promise.return ()
+      | None -> Promise.return ()
 
 (** {2 Copybook directory retrieval} *)
 

@@ -14,3 +14,6 @@
 
 val register_all :
   Vscode.ExtensionContext.t -> Superbol_instance.t -> unit
+
+(** Offers to resume an analysis that was interrupted in this workspace. *)
+val offer_resume : Superbol_instance.t -> unit Promise.t

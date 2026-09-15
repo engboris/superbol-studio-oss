@@ -616,6 +616,11 @@ let commands =
       ~title:"Analyze Every COBOL File in the Workspace"
       ~category:"SuperBOL";
     Manifest.command ()
+      ~command:"superbol.analyze.stop"
+      ~title:"Stop Analyzing the Workspace"
+      ~category:"SuperBOL"
+      ~enablement:"superbol.analyzing";
+    Manifest.command ()
       ~command:"superbol.copybooks.retrieve"
       ~title:"Retrieve Copybook Directories"
       ~category:"SuperBOL";
