@@ -30,6 +30,11 @@ type t =
 let extension_oc : Vscode.OutputChannel.t Lazy.t =
   lazy (Vscode.Window.createOutputChannel ~name:"SuperBOL Studio Extension")
 
+let log_error fmt =
+  Printf.ksprintf
+    (fun value -> OutputChannel.appendLine (Lazy.force extension_oc) ~value)
+    fmt
+
 let commands = ref []
 
 let command id handler =
@@ -99,6 +104,33 @@ let find_cobol_files ~token =
   in
   aux [] cobol_file_patterns
 
+(* Written while the analysis runs, so a crash keeps the results found so far. *)
+let create_report () =
+  match Workspace.workspaceFolders () with
+  | [] -> None
+  | folder :: _ ->
+      let dir =
+        Node.Path.join [Uri.fsPath (WorkspaceFolder.uri folder); "_superbol"]
+      in
+      let file = Node.Path.join [dir; "analysis-report.txt"] in
+      try
+        (* The bindings drop the label: this is a plain, non-recursive mkdir,
+           and it fails if the directory is already there. *)
+        if not (Node.Fs.existsSync dir) then
+          Node.Fs.mkdirSync dir ~recursive:true;
+        Node.Fs.writeFileSync file "";
+        Some file
+      with e ->
+        log_error "SuperBOL: cannot create %s: %s" file (Printexc.to_string e);
+        None
+
+let append_to_report report text =
+  match report with
+  | None -> ()
+  | Some file ->
+      try Node.Fs.appendFileSync file text with e ->
+        log_error "SuperBOL: cannot write %s: %s" file (Printexc.to_string e)
+
 let text_document_id uri =
   Jsonoo.Encode.(object_ ["uri", string @@ Uri.toString uri ()])
 
@@ -138,51 +170,114 @@ let is_already_open uri =
     (fun doc -> Uri.toString (TextDocument.uri doc) () = uri)
     (Workspace.textDocuments ())
 
-let analyze_document ~uri instance =
-  Promise.catch ~rejected:(fun _ -> Promise.return ()) @@
+(* [false] when the file could not be read, so it was never analyzed. *)
+let analyze_document ~uri ~report instance =
+  let open Promise.Syntax in
+  Promise.catch
+    ~rejected:begin fun error ->
+      let value =
+        Printf.sprintf "%s: skipped, %s"
+          (Workspace.asRelativePath () ~pathOrUri:(`Uri uri))
+          (Node.JsError.message error)
+      in
+      log_error "SuperBOL: %s" value;
+      append_to_report report (value ^ "\n");
+      Promise.return false
+    end @@
   if is_already_open uri then
-    await_analysis_of ~uri instance
+    let+ () = await_analysis_of ~uri instance in
+    true
   else
-    let open Promise.Syntax in
     let* text = Node.Fs.readFile (Uri.fsPath uri) in
     notify_did_open ~uri ~text instance;
     let+ () = await_analysis_of ~uri instance in
-    notify_did_close ~uri instance
+    notify_did_close ~uri instance;
+    true
 
-let report_completion ~analyzed ~missed =
+let severity_name = function
+  | DiagnosticSeverity.Error -> "error"
+  | DiagnosticSeverity.Warning -> "warning"
+  | DiagnosticSeverity.Information -> "note"
+  | DiagnosticSeverity.Hint -> "hint"
+
+let report_line ~path diag =
+  let pos = Range.start @@ Diagnostic.range diag in
+  Printf.sprintf "%s:%u:%u: %s: %s\n" path
+    (succ @@ Position.line pos) (succ @@ Position.character pos)
+    (severity_name @@ Diagnostic.severity diag)
+    (Diagnostic.message diag)
+
+let report_diagnostics_of ~uri report =
+  match Languages.getDiagnostics uri with
+  | [] -> ()
+  | diags ->
+      let path = Workspace.asRelativePath () ~pathOrUri:(`Uri uri) in
+      append_to_report report @@
+      String.concat "" @@ List.map (report_line ~path) diags
+
+let report_completion report ~analyzed ~skipped ~missed =
+  let outcome =
+    if missed = 0 then
+      Printf.sprintf "SuperBOL: analyzed %u file(s)" analyzed
+    else
+      Printf.sprintf "SuperBOL: analysis interrupted after %u of %u file(s)"
+        (analyzed + skipped) (analyzed + skipped + missed)
+  and unread =
+    if skipped = 0 then ""
+    else Printf.sprintf "; %u file(s) could not be read" skipped
+  and where =
+    match report with
+    | None ->
+        "; diagnostics are listed in the Problems view"
+    | Some file ->
+        Printf.sprintf "; diagnostics are listed in the Problems view and in %s"
+          (Workspace.asRelativePath () ~pathOrUri:(`Uri (Uri.file file)))
+  in
+  let message = outcome ^ unread ^ where in
+  append_to_report report (Printf.sprintf "\n%s%s\n" outcome unread);
   let _ =
-    Window.showInformationMessage ()
-      ~message:begin
-        if missed = 0 then
-          Printf.sprintf "SuperBOL: analyzed %u file(s); diagnostics are \
-                          listed in the Problems view" analyzed
-        else
-          Printf.sprintf "SuperBOL: analysis interrupted after %u of %u file(s)"
-            analyzed (analyzed + missed)
-      end
+    match report with
+    | None ->
+        Window.showInformationMessage () ~message |>
+        Promise.then_ ~fulfilled:(fun (_: unit option) -> Promise.return ())
+    | Some file ->
+        Window.showInformationMessage () ~message
+          ~choices:["Show Report", ()] |>
+        Promise.then_ ~fulfilled:begin function
+          | Some () ->
+              let _ =
+                Window.showTextDocument ~document:(`Uri (Uri.file file)) ()
+              in
+              Promise.return ()
+          | None ->
+              Promise.return ()
+        end
   in
   Promise.return ()
 
 let analyze_workspace instance ~progress ~token =
   let open Promise.Syntax in
   let* uris = find_cobol_files ~token in
+  let report = create_report () in
   let total = List.length uris in
   let percent i = i * 100 / max 1 total in
-  let rec loop i = function
+  let rec loop i skipped = function
     | remaining when CancellationToken.isCancellationRequested token ->
-        report_completion ~analyzed:i ~missed:(List.length remaining)
+        report_completion report ~analyzed:(i - skipped) ~skipped
+          ~missed:(List.length remaining)
     | [] ->
-        report_completion ~analyzed:i ~missed:0
+        report_completion report ~analyzed:(i - skipped) ~skipped ~missed:0
     | uri :: remaining ->
         Progress.report progress ~value:Progress.{
             message = Some (Printf.sprintf "%u/%u: %s" (succ i) total @@
                             Workspace.asRelativePath () ~pathOrUri:(`Uri uri));
             increment = Some (percent (succ i) - percent i);
           };
-        let* () = analyze_document ~uri instance in
-        loop (succ i) remaining
+        let* analyzed = analyze_document ~uri ~report instance in
+        if analyzed then report_diagnostics_of ~uri report;
+        loop (succ i) (if analyzed then skipped else succ skipped) remaining
   in
-  loop 0 uris
+  loop 0 0 uris
 
 (* The server drops all diagnostics unless `forceSyntaxDiagnostics' is set or
    the dialect is COBOL85 (see `dispatch_diagnostics' in `lsp_server.ml').  The
