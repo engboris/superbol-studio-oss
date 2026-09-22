@@ -12,6 +12,7 @@
 (**************************************************************************)
 
 val relative_path: uri:Lsp.Uri.t -> string -> string
+val absolute_path: rootdir:string -> string -> string
 val is_file: string -> bool
 val read_from: string -> (in_channel -> 'a) -> 'a
 val write_to: string -> (out_channel -> unit) -> unit

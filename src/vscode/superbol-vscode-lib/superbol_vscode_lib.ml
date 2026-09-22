@@ -35,6 +35,7 @@ let activate ~lsp_server_prefix (extension: Vscode.ExtensionContext.t) =
 
   Superbol_commands.register_all extension instance;
   let* () = Superbol_instance.start_language_server instance in
+  Superbol_copybook.start_status_bar instance;
   Promise.return instance
 
 let deactivate () =

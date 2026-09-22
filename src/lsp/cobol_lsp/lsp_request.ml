@@ -31,9 +31,17 @@ open TYPES
 
 (** {2 Handling requests} *)
 
+(* A copybook has no analysis of its own: use the one of the program it is
+   linked with, and keep its own text so that positions still refer to it. *)
+let with_reference_analysis registry (doc: Lsp_document.t) =
+  if not doc.copybook then doc else
+    match Lsp_server.reference_program ~uri:(Lsp_document.uri doc) registry with
+    | None -> doc
+    | Some { artifacts; checked; _ } -> { doc with artifacts; checked }
+
 (** Catch generic exception cases, and report errors using {!Lsp_error}.
-    Returns [None] in case the document cannot be parsed (or is a copybook, for
-    now).  [f] has to return an optional value. *)
+    Returns [None] in case the document cannot be parsed (or is a copybook with
+    no reference program).  [f] has to return an optional value. *)
 let try_with_doc ~f registry doc_id =
   let doc =
     try Lsp_server.find_document doc_id registry
@@ -44,6 +52,7 @@ let try_with_doc ~f registry doc_id =
          notification; this may happen due to unhandled character encodings.\
         " (DocumentUri.to_string doc_id.TextDocumentIdentifier.uri)
   in
+  let doc = with_reference_analysis registry doc in
   try f ~doc
   with Lsp_document.(Unparseable _ | Copybook _) -> None
      | e -> Lsp_error.internal "Caught exception: %a" Fmt.exn e
@@ -168,6 +177,25 @@ let handle_get_project_config_command param registry =
     let uri = Lsp.Uri.t_of_yojson (List.assoc "uri" assoc) in
     let reply = Lsp_server.get_project_config_command uri registry in
     Lsp_io.log_debug "Reply: %a" (Yojson.Safe.pretty_print ~std:false) reply;
+    Ok (reply, Running registry)
+  with Yojson.Safe.Util.(Type_error _ | Undefined _) | Not_found ->
+    Lsp_error.invalid_params "param = %s (association list with \"uri\" key \
+                              expected)" Yojson.Safe.(to_string (param :> t))
+
+(* Tells which program is used to analyze the copybook at the given URI, so that
+   the client can show it. *)
+let handle_get_reference_program param registry =
+  try
+    let assoc = assoc_of_jsonrpc_struct param in
+    let uri = Lsp.Uri.t_of_yojson (List.assoc "uri" assoc) in
+    let registry, program = Lsp_server.reference_program_for ~uri registry in
+    let reply =
+      `Assoc [ "copybook", `Bool (Lsp_server.is_copybook ~uri registry);
+               "program", match program with
+                 | None -> `Null
+                 | Some doc -> `String (Lsp.Uri.to_string @@
+                                        Lsp_document.uri doc) ]
+    in
     Ok (reply, Running registry)
   with Yojson.Safe.Util.(Type_error _ | Undefined _) | Not_found ->
     Lsp_error.invalid_params "param = %s (association list with \"uri\" key \
@@ -579,8 +607,14 @@ let handle_semtoks_full,
                                         rev_comments; rev_ignored; _ };
                           _ } Cobol_typeck.Outputs.{ ptree; _ } ->
         let data =
-          let rev_comments = StringMap.find "" rev_comments in
-          Lsp_semtoks.data ~filename:(Lsp.Uri.to_path doc.uri) ~range
+          let filename = Lsp.Uri.to_path doc.uri in
+          (* Comments of a copybook are recorded under its own filename. *)
+          let rev_comments =
+            match StringMap.find_opt filename rev_comments with
+            | Some comments -> comments
+            | None -> StringMap.find "" rev_comments
+          in
+          Lsp_semtoks.data ~filename ~range
             ~pplog ~rev_comments ~rev_ignored
             ~tokens:(Lazy.force tokens) ~ptree
         in
@@ -833,6 +867,8 @@ let handle_folding_range registry (params: FoldingRangeParams.t) =
 let handle_document_symbol registry (params: DocumentSymbolParams.t) =
   try_with_checked_doc registry params.textDocument
     ~f:begin fun ~doc { ptree; _ } ->
+      (* The symbols of a program are not those of the copybooks it copies. *)
+      if doc.Lsp_document.copybook then None else
       let uri = Lsp.Text_document.documentUri doc.textdoc in
       let symbols = Lsp_document_symbol.from_ptree_at ~uri ptree in
       Some (`DocumentSymbol symbols)
@@ -961,6 +997,9 @@ let on_request
     | UnknownRequest { meth = "superbol/getProjectConfiguration";
                        params = Some param } ->
         handle_get_project_config_command param registry
+    | UnknownRequest { meth = "superbol/getReferenceProgram";
+                       params = Some param } ->
+        handle_get_reference_program param registry
     | UnknownRequest { meth = "superbol/getCFG";
                        params = Some param } ->
         Ok (handle_get_cfg registry param, state)

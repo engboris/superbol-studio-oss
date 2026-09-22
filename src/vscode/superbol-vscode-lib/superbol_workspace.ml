@@ -27,13 +27,13 @@ let cobol_file_patterns =
     "**/*.[pP]{co,CO}";
   ]
 
-let find_cobol_files ~token =
+let find_cobol_files ?token () =
   let open Promise.Syntax in
   let rec aux acc = function
     | [] ->
         Promise.return (List.rev acc)
     | pattern :: patterns ->
-        let* uris = Workspace.findFiles () ~includes:(`String pattern) ~token in
+        let* uris = Workspace.findFiles () ~includes:(`String pattern) ?token in
         aux (List.rev_append uris acc) patterns
   in
   aux [] cobol_file_patterns
@@ -220,7 +220,7 @@ let report_completion report ~analyzed ~skipped ~missed =
 
 let analyze_workspace instance ~progress ~token =
   let open Promise.Syntax in
-  let* uris = find_cobol_files ~token in
+  let* uris = find_cobol_files ~token () in
   let report = create_report () in
   let total = List.length uris in
   let percent i = i * 100 / max 1 total in

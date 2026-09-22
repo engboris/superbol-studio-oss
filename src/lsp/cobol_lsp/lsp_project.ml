@@ -67,9 +67,17 @@ let for_ ~rootdir ~layout =
 let in_existing_dir dirname ~layout =
   for_ ~rootdir:(Superbol_project.rootdir_at ~dirname) ~layout
 
+(* Copybooks are looked up in absolute directories, so that locations in a
+   copybook can be matched with the document opened in the editor. *)
 let copybook_lookup_config_for ~uri project =
-  Superbol_project.copybook_lookup_config_for ~filename:(Lsp.Uri.to_path uri)
-    project
+  let lookup_config =
+    Superbol_project.copybook_lookup_config_for ~filename:(Lsp.Uri.to_path uri)
+      project
+  in
+  let rootdir = string_of_rootdir @@ rootdir project in
+  { lookup_config with
+    lookup_path = List.map (Lsp_utils.absolute_path ~rootdir)
+        lookup_config.lookup_path }
 
 let detect_copybook ~uri ?contents project =
   Superbol_project.detect_copybook ~filename:(Lsp.Uri.to_path uri)

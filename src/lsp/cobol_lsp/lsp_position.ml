@@ -16,8 +16,6 @@
 
 open Cobol_common
 open Srcloc.TYPES
-open Ez_file.V1
-open EzFile.OP
 open Lsp.Types
 
 (** Range of length [0], at position [0, 0] *)
@@ -119,15 +117,7 @@ type translator =
   }
 
 let pseudo_normalized_uri ~rootdir filename =
-  let filename =
-    let prefix = EzFile.current_dir_name // "" in
-    if EzFile.is_absolute filename
-    then filename
-    else rootdir // match EzString.chop_prefix ~prefix filename with
-      | None -> filename
-      | Some x -> x
-  in
-  Lsp.Uri.of_path filename
+  Lsp.Uri.of_path @@ Lsp_utils.absolute_path ~rootdir filename
 
 let location_of_srcloc ?(focus_on_main_doc = false) ~rootdir ~uri loc =
   let project_srcloc =
@@ -154,7 +144,9 @@ let loc_translator ?focus_on_main_doc ~rootdir uri =
 class ['x] sieve ~filename ~pos = object
   method fold': 'n. ('n with_loc, 'x) Cobol_common.Visitor.fold =
     fun { loc; _ } ->
-    if is_in_srcloc ~filename pos loc
+    (* A location that does not involve [filename] cannot contain [pos]; this
+       happens when looking in a copybook copied by the analyzed program. *)
+    if (try is_in_srcloc ~filename pos loc with Invalid_argument _ -> false)
     then Visitor.do_children
     else Visitor.skip_children
 end

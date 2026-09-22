@@ -26,6 +26,8 @@ module TYPES = struct
     indirect_diags: Lsp_diagnostics.t URIMap.t; (* diagnostics for other URIs
                                                    mentioned by docs in
                                                    `docs` *)
+    copybook_refs: DocumentUri.t URIMap.t;   (* copybook URI -> URI of the last
+                                                analyzed program copying it *)
     pending_tasks: pending_tasks;
     sub_state: sub_state;
     params: params;
@@ -334,6 +336,17 @@ let remove_project project r =
   else maybe_stop_watching_config_of ~project { r with projects }
 
 
+(* A copybook is never analyzed on its own.  Instead, it is linked with the last
+   program that was analyzed and copies it, so that requests about the copybook
+   can be answered with the results of that program. *)
+let record_copybook_refs doc r =
+  let uri = Lsp_document.uri doc in
+  { r with
+    copybook_refs =
+      List.fold_left (fun refs copybook -> URIMap.add copybook uri refs)
+        r.copybook_refs (Lsp_document.copied_copybooks doc) }
+
+
 (** {3 Per-project cache} *)
 
 
@@ -346,8 +359,9 @@ let load_project_cache ~rootdir
        docs = old_docs; _ } as registry) =
   let new_docs = Lsp_project_cache.load ~params ~layout ~rootdir in
   let registry =
-    { registry with
-      docs = URIMap.union (fun _ _old new_ -> Some new_) old_docs new_docs }
+    URIMap.fold (fun _ -> record_copybook_refs) new_docs
+      { registry with
+        docs = URIMap.union (fun _ _old new_ -> Some new_) old_docs new_docs }
   in
   match URIMap.choose_opt new_docs with
   | Some (_, Lsp_document.{ project; _ }) -> add_project project registry
@@ -359,7 +373,56 @@ let load_project_cache ~rootdir
 
 let add_or_replace_doc doc r =
   let docs = URIMap.add (Lsp_document.uri doc) doc r.docs in
-  if docs == r.docs then r else { r with docs }
+  if docs == r.docs then r else record_copybook_refs doc { r with docs }
+
+
+(** [reference_program ~uri registry] returns the program that is linked with
+    the copybook at [uri], if it is still loaded. *)
+let reference_program ~uri { copybook_refs; docs; _ } =
+  Option.bind (URIMap.find_opt uri copybook_refs) @@ fun uri ->
+  URIMap.find_opt uri docs
+
+
+(** [is_copybook ~uri registry] tells whether the document at [uri] is a loaded
+    copybook. *)
+let is_copybook ~uri { docs; _ } =
+  match URIMap.find_opt uri docs with
+  | Some Lsp_document.{ copybook; _ } -> copybook
+  | None -> false
+
+
+(* Analyzes the program at [uri] again, so that the copybooks it copies can use
+   its results.  The program is not opened in the client: it is only kept in the
+   registry. *)
+let reload_program ~project ~uri registry =
+  try
+    let doc = Lsp_document.load_file ~project ~params:registry.params uri in
+    add_or_replace_doc doc @@ dispatch_diagnostics doc registry
+  with e ->
+    Lsp_io.log_error "Unable@ to@ analyze@ %s:@ %a"
+      (Lsp.Uri.to_string uri) Fmt.exn e;
+    registry
+
+
+(** [link_copybook doc registry] makes sure the program that [doc] refers to is
+    loaded, when [doc] is a copybook.  Does nothing on other documents, or when
+    no analyzed program copies the copybook. *)
+let link_copybook (Lsp_document.{ copybook; project; _ } as doc) registry =
+  if not copybook then registry else
+    match URIMap.find_opt (Lsp_document.uri doc) registry.copybook_refs with
+    | None -> registry
+    | Some uri when URIMap.mem uri registry.docs -> registry
+    | Some uri -> reload_program ~project ~uri registry
+
+
+(** [reference_program_for ~uri registry] links the copybook at [uri] with the
+    last analyzed program that copies it, and returns that program. *)
+let reference_program_for ~uri registry =
+  let registry = match URIMap.find_opt uri registry.docs with
+    | Some doc -> link_copybook doc registry
+    | None -> registry
+  in
+  registry, reference_program ~uri registry
 
 
 (** {3 Error reporting} *)
@@ -610,6 +673,7 @@ let init ~params : registry =
     projects = Lsp_project.SET.empty;
     docs = URIMap.empty;
     indirect_diags = URIMap.empty;
+    copybook_refs = URIMap.empty;
     pending_tasks = { delayed_id = 0; delayed = IMap.empty };
     sub_state = { ignore_next_client_config_changes = true } } |>
   add_workspace_folders params.workspace_folders |>
@@ -655,6 +719,7 @@ let add ~doc:(DidOpenTextDocumentParams.{ textDocument = { uri; _ }; _ } as doc)
   let add_in_project project registry =
     try
       let doc = Lsp_document.load ~project ~params:registry.params doc in
+      let registry = link_copybook doc registry in
       let registry = dispatch_diagnostics doc registry in
       add_or_replace_doc doc registry
     with Lsp_document.Internal_error (doc, e, backtrace) ->
@@ -673,7 +738,7 @@ let did_open (DidOpenTextDocumentParams.{ textDocument = { uri; text; _ };
     (* When opening, we need to check that the text we already have (in cache)
        matches what the client gives us. *)
     | Some doc when String.equal (Lsp.Text_document.text doc.textdoc) text ->
-        dispatch_diagnostics doc registry
+        dispatch_diagnostics doc @@ link_copybook doc registry
     | None | Some _ when try_cache ->
         retrieve_project_for ~uri registry |>
         aux ~try_cache:false                   (* try again without the cache *)

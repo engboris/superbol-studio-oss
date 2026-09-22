@@ -12,6 +12,7 @@
 (**************************************************************************)
 
 open Ez_file.V1
+open EzFile.OP
 
 let () =
   (* There is no need backslashify path names on windows. *)
@@ -27,6 +28,15 @@ let relative_path ~uri absolute_path =
   | Some path when path.[0] = FileOS.dir_separator -> EzString.after path 0
   | Some path -> path
   | None -> Fmt.invalid_arg "%s is not contained within %s" path absolute_path
+
+(** [absolute_path ~rootdir path] returns [path] itself when it is absolute, and
+    its resolution against [rootdir] otherwise. *)
+let absolute_path ~rootdir path =
+  if EzFile.is_absolute path then path else
+    match EzString.chop_prefix path ~prefix:(EzFile.current_dir_name // "") with
+    | Some path -> rootdir // path                            (* "./sub/dir" *)
+    | None when path = EzFile.current_dir_name -> rootdir     (* "." *)
+    | None -> rootdir // path
 
 let is_file path = EzFile.exists path && not (EzFile.is_directory path)
 

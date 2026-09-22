@@ -204,6 +204,25 @@ let load ~project ~params doc =
   try parse_and_analyze doc
   with e -> raise @@ Internal_error (doc, e, Printexc.get_raw_backtrace ())
 
+(** Same as {!load}, with the contents read from the file at the given URI. *)
+let load_file ~project ~params uri =
+  load ~project ~params @@
+  Lsp.Types.DidOpenTextDocumentParams.create
+    ~textDocument:(Lsp.Types.TextDocumentItem.create
+                     ~languageId:"cobol" ~version:0 ~uri
+                     ~text:(EzFile.read_file (Lsp.Uri.to_path uri)))
+
+(** URIs of the copybooks that were copied when analyzing the document. *)
+let copied_copybooks { project; artifacts = { pplog; _ }; _ } =
+  let rootdir = Lsp_project.(string_of_rootdir @@ rootdir project) in
+  Cobol_preproc.Trace.fold pplog ~f:begin fun event acc ->
+    match event with
+    | Cobol_preproc.Trace.FileCopy { status = CopyDone filename; _ } ->
+        Lsp_position.pseudo_normalized_uri ~rootdir filename :: acc
+    | _ ->
+        acc
+  end []
+
 let unload doc =
   Option.iter Cobol_parser.forget doc.rewinder
 

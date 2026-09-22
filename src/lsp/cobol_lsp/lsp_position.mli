@@ -75,6 +75,13 @@ type translator =
     location_of: 'x. 'x Cobol_common.Srcloc.with_loc -> Lsp.Types.Location.t;
   }
 
+(** [pseudo_normalized_uri ~rootdir filename] is the URI of [filename], that is
+    resolved against [rootdir] when it is a relative path. *)
+val pseudo_normalized_uri
+  : rootdir:string
+  -> string
+  -> Lsp.Types.DocumentUri.t
+
 val location_of_srcloc
   : ?focus_on_main_doc:bool
   -> rootdir:string

@@ -19,6 +19,7 @@ module TYPES: sig
     projects: Lsp_project.SET.t;
     docs: Lsp_document.t URIMap.t;
     indirect_diags: Lsp_diagnostics.t URIMap.t;
+    copybook_refs: Lsp.Types.DocumentUri.t URIMap.t;
     pending_tasks: pending_tasks;
     sub_state: sub_state;
     params: Lsp_types.params;
@@ -74,6 +75,22 @@ val did_close
 
 val find_document
   : Lsp.Types.TextDocumentIdentifier.t -> t -> Lsp_document.t
+
+(** [is_copybook ~uri registry] tells whether the document at [uri] is a loaded
+    copybook. *)
+val is_copybook
+  : uri:Lsp.Uri.t -> t -> bool
+
+(** [reference_program ~uri registry] returns the program that is linked with
+    the copybook at [uri], if it is still loaded. *)
+val reference_program
+  : uri:Lsp.Uri.t -> t -> Lsp_document.t option
+
+(** [reference_program_for ~uri registry] links the copybook at [uri] with the
+    last analyzed program that copies it, analyzing that program again if it is
+    not loaded anymore, and returns it. *)
+val reference_program_for
+  : uri:Lsp.Uri.t -> t -> t * Lsp_document.t option
 
 val jsonrpc_of_error
   : 'a error -> string -> Jsonrpc.Response.Error.t
