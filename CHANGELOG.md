@@ -3,6 +3,7 @@
 ## [_] Next release
 
 ### Added
+- Link between an opened copybook and the last program analyzed by the LSP that copies it, so that diagnostics and hover also work in copybooks; the program in use is shown in the status bar [#670](https://github.com/OCamlPro/superbol-studio-oss/pull/670)
 - Display of the size and offset of data items on hover [#665](https://github.com/OCamlPro/superbol-studio-oss/pull/665)
 - Display of `REDEFINES` relations on hover, with the size of the redefinition and the size of the item it redefines [#669](https://github.com/OCamlPro/superbol-studio-oss/pull/669)
 - Support tabs in source file [#591](https://github.com/OCamlPro/superbol-studio-oss/pull/591)
@@ -17,6 +18,7 @@
 - Support for 78-level data items [#634](https://github.com/OCamlPro/superbol-studio-oss/pull/634)
 
 ### Fixed
+- Lookup of copybooks in the LSP server, where relative directories are now resolved against the root directory of the project instead of the working directory of the server [#670](https://github.com/OCamlPro/superbol-studio-oss/pull/670)
 - Performances of the LSP server when many documents are opened and closed in a single session [#659](https://github.com/OCamlPro/superbol-studio-oss/pull/659)
 - Internal type of `CALL` arguments [#655](https://github.com/OCamlPro/superbol-studio-oss/pull/655)
 - Amount of references reported in codelens, that wrongly included declarations [#640](https://github.com/OCamlPro/superbol-studio-oss/pull/640)
