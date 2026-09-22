@@ -4,6 +4,7 @@
 
 ### Added
 - Display of the size and offset of data items on hover [#665](https://github.com/OCamlPro/superbol-studio-oss/pull/665)
+- Display of `REDEFINES` relations on hover, with the size of the redefinition and the size of the item it redefines [#669](https://github.com/OCamlPro/superbol-studio-oss/pull/669)
 - Support tabs in source file [#591](https://github.com/OCamlPro/superbol-studio-oss/pull/591)
 - Unified internal epresentation of binary data items [#656](https://github.com/OCamlPro/superbol-studio-oss/pull/656)
 - Command to retrieve the directories that contain copybooks into the workspace settings [#654](https://github.com/OCamlPro/superbol-studio-oss/pull/654)
