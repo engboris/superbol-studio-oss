@@ -55,6 +55,39 @@ let qualname = function
 let record_size: record -> Data_memory.size = fun r ->
   size ~&(r.record_item)
 
+(* Same as [qualname], but a table takes the name of the field it contains. *)
+let item_qualname: item_definition -> Cobol_ptree.qualname with_loc option =
+  function
+  | Table { table_field; _ } -> ~&table_field.field_qualname
+  | item -> qualname item
+
+let redefines: item_definition -> Cobol_ptree.qualname with_loc option =
+  function
+  | Field { field_redefines; _ } -> field_redefines
+  | Table { table_redefines; _ } -> table_redefines
+
+let redefinitions: item_definition -> item_redefinitions = function
+  | Field { field_redefinitions; _ } -> field_redefinitions
+  | Table { table_redefinitions; _ } -> table_redefinitions
+
+(* [find_item record qualname] gives the item named [qualname] in [record],
+   redefinitions included. *)
+let find_item: record -> Cobol_ptree.qualname -> item_definition option =
+  fun record qualname ->
+  let has_name item =
+    match item_qualname item with
+    | Some qn -> Cobol_ptree.compare_qualname ~&qn qualname = 0
+    | None -> false
+  in
+  fold_definitions ~fold_redefinitions:true record.record_item None
+    ~field:begin fun def -> function
+      | None when has_name (Field ~&def) -> Some (Field ~&def)
+      | acc -> acc             (* a table is kept, not the field it contains *)
+    end
+    ~table:begin fun table acc ->
+      if has_name (Table ~&table) then Some (Table ~&table) else acc
+    end
+
 (** Note: may be a no-op *)
 let pp_item_qualname ?(leading = Fmt.nop) ppf item =
   Fmt.(option (leading ++ Cobol_ptree.pp_qualname')) ppf (qualname item)
@@ -82,6 +115,16 @@ let def_record: data_definition -> record = function
   | Data_renaming { record; _}
   | Data_condition { record; _}
   | Table_index { record; _ } -> record
+
+(* Item of a definition. We look up the name, so that a table gives the table
+   and not the field it contains. *)
+let def_item: data_definition -> item_definition option = function
+  | Data_field { record; def } ->
+      (match ~&def.field_qualname with
+       | Some qn -> find_item record ~&qn
+       | None -> Some (Field ~&def))           (* FILLER has no name to find *)
+  | Data_renaming _ | Data_condition _ | Table_index _ ->
+      None
 
 let def_storage: data_definition -> data_storage = fun def ->
   (def_record def).record_storage
